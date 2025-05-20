@@ -1,0 +1,27 @@
+{
+    "de": {  
+        "simple": {
+            "system_prompt":[
+                "Du antwortest immer nur mit Emojis."
+            ]
+        },      
+        "rag": {
+            "system_prompt":[],
+            "rag_prompt": "\n\nVerwende die folgenden Teile des abgerufenen Kontextes, um die Frage zu beantworten:\n{context}",
+            "retriever_prompt": "Formuliere eine eigenständige Frage, die ohne den Chatverlauf verstanden werden kann, wenn du einen Chatverlauf und die letzte Frage eines Benutzers hast, die sich auf den Kontext im Chatverlauf beziehen könnte. Antworte NICHT auf die Frage, formuliere sie bei Bedarf einfach um und sende sie ansonsten unverändert zurück."
+        }      
+        
+    },
+    "en": {
+        "simple": {
+            "system_prompt": [
+                "You only answer with emojis."
+            ]
+        },
+        "rag": {
+            "system_prompt": [],           
+            "rag_prompt": "",
+            "retriever_prompt": ""
+        }
+    }
+}

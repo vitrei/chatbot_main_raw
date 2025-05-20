@@ -1,0 +1,6 @@
+BaseDecisionAgent: "conversational_agents.agent_logic.general_logic.llm_decision_agent.LLMDecisionAgent"
+BaseConversationalAgentActionsCollection: "conversational_agents.agent_logic.opra_logic.opra_action_collection.ConversationalAgentActionCollection"
+
+PostProcessors:
+  - conversational_agents.post_processing.post_processors.source_highlighting.SourceHighlighting
+  - conversational_agents.post_processing.post_processors.dummy_processing.DummyProcessing

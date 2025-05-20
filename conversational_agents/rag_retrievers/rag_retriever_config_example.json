@@ -1,0 +1,12 @@
+{
+    "retrievers": [
+        {
+            "type": "Chroma",
+            "persist_directory": "",
+            "embedding_function": "intfloat/multilingual-e5-large-instruct",
+            "search_type": "similarity_score_threshold",
+            "score_threshold": 0.8
+        }
+    ],
+    "weights": [1.0]
+}

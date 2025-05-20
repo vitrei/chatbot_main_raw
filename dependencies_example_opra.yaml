@@ -1,0 +1,2 @@
+BaseDecisionAgent: "conversational_agents.agent_logic.opra_logic.opra_decision_agent.OPRADecisionAgent"
+BaseConversationalAgentActionsCollection: "conversational_agents.agent_logic.opra_logic.opra_action_collection.ConversationalAgentActionCollection"

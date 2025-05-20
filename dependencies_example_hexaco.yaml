@@ -1,0 +1,1 @@
+BaseDecisionAgent: "conversational_agents.agent_logic.hexaco_logic.hexaco_decision_agent.HexacoDecisionAgent"

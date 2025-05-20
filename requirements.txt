@@ -1,0 +1,9 @@
+fastapi
+langchain
+langchain_chroma
+langchain-ollama
+langchain_community
+langchain_huggingface
+langchain_openai==0.1.24
+scikit-learn
+nltk
