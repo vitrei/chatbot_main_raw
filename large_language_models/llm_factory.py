@@ -20,7 +20,7 @@ class LLMFactory():
 
         llm = None
 
-        if current_model_name in ['gemma3:12b']:
+        if current_model_name in ['gemma3:27b']:
 
             urls = json.loads(config.get("llm","host_names_hka"))
             chat_llm_url = random.choice(urls)

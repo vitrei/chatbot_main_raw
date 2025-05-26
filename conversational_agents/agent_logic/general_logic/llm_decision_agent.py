@@ -22,7 +22,7 @@ Das ist der Dialog zwischen dem Chatbot und einem Menschen:
 {chat_history}
 
 Der Chatbots soll nun die nächste sinnvolle Aktion ausführen. Mögliche Aktionen sind:
-    GENERATE: Direkt eine Antwort generieren.
+    GENERATE_ANSWER: Direkt eine Antwort generieren.
     GUIDING_INSTRUCTIONS: Den Dialog in eine bestimme Richtung lenken.
     ACTION: Eine externe Funktion aufrufen, z.B. einen API-Call.
 
