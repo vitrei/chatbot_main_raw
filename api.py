@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 import json
 import requests
-import asyncio
 import httpx
 
 from dependency_injection import ConversationalAgentsHandlerFactory, DecisionAgentFactory
@@ -123,18 +122,4 @@ async def instruct(request: Request):
     conversational_agent = conversational_agents_handler.get_by_user_id(user_id=user_id, decision_agent=decision_agent)
     answer = await conversational_agent.instruct(instruction)
     
-    await send_to_whisper(answer)
-    
     return JSONResponse(content=answer, headers={"Content-Type": "application/json; charset=UTF-8"})
-
-# Senden an Middleware
-async def send_to_whisper(content):
-    """Sendet Content an Whisper"""
-    try:
-        async with httpx.AsyncClient() as client:
-            url = "http://127.0.0.1:5010/whisper"
-            payload = {"message": content}
-            response = await client.post(url, json=payload)
-            print(f"/whisper response: {response.status_code}")
-    except Exception as e:
-        print(f"Whisper call failed: {e}")
