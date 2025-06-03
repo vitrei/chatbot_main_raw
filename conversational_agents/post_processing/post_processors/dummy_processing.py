@@ -8,7 +8,7 @@ class DummyProcessing(BasePostProcessor):
         emoji_pattern = re.compile(r"[\U00010000-\U0010FFFF]", flags=re.UNICODE)
         content = emoji_pattern.sub("", llm_answer.content)
 
-        content = unicodedata.normalize('NFKD', content).encode('ascii', 'ignore').decode('ascii')
+        # content = unicodedata.normalize('NFKD', content).encode('ascii', 'ignore').decode('ascii')
 
         content = content.replace('\n', ' ').replace('\r', '')
 
