@@ -7,6 +7,8 @@ import json
 import requests
 import httpx
 
+from integration.monkey_patch_handler import initialize_user_info_extraction
+
 from dependency_injection import ConversationalAgentsHandlerFactory, DecisionAgentFactory
 
 
@@ -16,6 +18,8 @@ app = FastAPI()
 conversational_agents_handler_factory = ConversationalAgentsHandlerFactory()
 decision_agent_factory = DecisionAgentFactory()
 conversational_agents_handler = conversational_agents_handler_factory.create()
+
+initialize_user_info_extraction()
 
 
 app.add_middleware(

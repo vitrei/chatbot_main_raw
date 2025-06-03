@@ -1,0 +1,19 @@
+{
+  "": {
+    "user_id": "",
+    "age": 14,
+    "gender": null,
+    "location": null,
+    "school_type": "Gymnasium",
+    "grade": null,
+    "preferred_social_media": [
+      "Instagram",
+      "TikTok"
+    ],
+    "daily_internet_hours": null,
+    "news_sources": [],
+    "fact_checking_awareness": "hoch",
+    "source_verification_habits": "Fragt, wenn etwas sofort geglaubt wird: 'Klingt schon krass, oder? Hast du mal geschaut, wo das herkommt?'",
+    "critical_thinking_level": "hoch"
+  }
+}
