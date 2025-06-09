@@ -32,5 +32,6 @@ class AgentState:
     instruction: str
     chat_history: list
     prompts: dict
+    user_profile: dict = None
     
 

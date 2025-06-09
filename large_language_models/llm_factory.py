@@ -1,74 +1,91 @@
 import json
 import random
+from functools import lru_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_ollama.chat_models import ChatOllama
 from langchain_openai.chat_models.base import ChatOpenAI
+import os
 
 from config import config
 
 class LLMFactory():
+    _instance = None
+    _llm_instances = {}
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def __init__(self):
+        if self._instance is not None:
+            raise RuntimeError("Use get_instance() instead")
         self.model_name = config.get("llm", "model_name")
-        print('model_name:', self.model_name)
+        print(f'LLMFactory initialized with model: {self.model_name}')
+        # Pre-create default LLM
+        self._create_llm(self.model_name)
 
     def get_llm(self, model_name=None):
-
-        current_model_name = self.model_name
-        if model_name != None:
-            current_model_name = model_name            
-
-        llm = None
-
-        if current_model_name in ['gemma3:27b']:
-
-            urls = json.loads(config.get("llm","host_names_hka"))
-            chat_llm_url = random.choice(urls)
+        current_model_name = model_name or self.model_name
+        
+        if current_model_name not in self._llm_instances:
+            self._create_llm(current_model_name)
             
-            llm = ChatOllama(
-                model = self.model_name,
-                base_url = chat_llm_url,
-                keep_alive = -1 # any negative number which will keep the model loaded in memory (e.g. -1 or "-1m")
-            )
-
-        elif current_model_name in ['llama3.1:8b_ionos']:
-
-            urls = json.loads(config.get("llm","host_names_ionos_model_hub"))
-            chat_llm_url = random.choice(urls)
-
-            llm = ChatOpenAI(
-                model="meta-llama/Meta-Llama-3.1-8B-Instruct",
-                openai_api_base=chat_llm_url,
-                openai_api_key=config.get("llm", "ionos_model_hub_api_key")
-            )
-
-        elif current_model_name in ['llama3']:
-            urls = json.loads(config.get("llm","host_names_ionos"))
-            chat_llm_url = random.choice(urls)
+        return self._llm_instances.get(current_model_name)
+    
+    def _create_llm(self, model_name):
+        """Internal method to create and cache an LLM instance"""
+        try:
+            llm = None
             
-            llm = ChatOllama(
-                model = self.model_name,
-                base_url = chat_llm_url,
-                keep_alive = -1 # any negative number which will keep the model loaded in memory (e.g. -1 or "-1m")
-            )
+            if model_name == 'openai':
+                openai_model = config.get("llm", "openai_model", fallback="gpt-4o")
+                api_key = config.get("llm", "openai_api_key")
+                
+                if not api_key or api_key == "your_openai_api_key_here":
+                    api_key = os.environ.get("OPENAI_API_KEY")
+                    if not api_key:
+                        raise ValueError("No valid OpenAI API key found")
+                
+                llm = ChatOpenAI(
+                    model=openai_model,
+                    openai_api_key=api_key,
+                    temperature=0.7
+                )
+                
+            elif model_name in ['llama3:latest']:
+                urls = json.loads(config.get("llm", "host_names_hka"))
+                chat_llm_url = random.choice(urls)
+                
+                llm = ChatOllama(
+                    model=model_name,
+                    base_url=chat_llm_url,
+                    keep_alive=-1
+                )
+
+            if llm is None:
+                raise ValueError(f"Failed to create LLM for model: {model_name}")
             
-        elif current_model_name in ['openGPT-X/Teuken-7B-instruct-commercial-v0.4']:
+            self._llm_instances[model_name] = llm
+            return llm
+                
+        except Exception as e:
+            print(f"Error creating LLM for {model_name}: {e}")
+            # Try fallback to OpenAI if available
+            try:
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if api_key:
+                    fallback_llm = ChatOpenAI(
+                        model="gpt-4o",
+                        openai_api_key=api_key,
+                        temperature=0.7
+                    )
+                    self._llm_instances[model_name] = fallback_llm
+                    return fallback_llm
+            except:
+                pass
+            return None
 
-            opengptx_urls = json.loads(config.get("llm","host_names_opengptx"))
-            chat_llm_url = random.choice(opengptx_urls)
-            vllm_api_key = config.get("llm", "vllm_api_key")
-            
-            print("server:", chat_llm_url)
-            print("model:", self.model_name)
-            print("api_key", vllm_api_key)
-
-            llm = ChatOpenAI(
-                model=self.model_name,
-                openai_api_key=vllm_api_key,
-                openai_api_base=chat_llm_url,
-                max_tokens=250
-            )
-
-        return llm
-
-llm_factory = LLMFactory()
+# Create singleton instance
+llm_factory = LLMFactory.get_instance()

@@ -4,6 +4,7 @@ from conversational_agents.agent_logic.base_conversational_agent_action_collecti
 from conversational_agents.agent_logic.base_decision_agent import BaseDecisionAgent
 from conversational_agents.conversational_agents_handler import ConversationalAgentsHandler
 from conversational_agents.post_processing.post_processing_pipeline import PostProcessingPipeline
+from conversational_agents.pre_processing.pre_processing_pipeline import PreProcessingPipeline
 
 def dynamic_import(class_path: str):
     """Dynamically import a class or variable from a module string path."""
@@ -58,10 +59,19 @@ class ConversationalAgentsHandlerFactory():
             post_processor_paths = []
         list_of_post_processors = [dynamic_import(path)() for path in post_processor_paths]
 
+        pre_processor_paths = config.get("PreProcessors", [])
+        if pre_processor_paths == None:
+            pre_processor_paths = []
+        list_of_pre_processors = [dynamic_import(path)() for path in pre_processor_paths]
+        
+
+        print(list_of_pre_processors)
         print(list_of_post_processors)
 
         post_processing_pipeline = PostProcessingPipeline(list_of_post_processors)
 
-        conversational_agents_hander = ConversationalAgentsHandler(agent_logic_actions=conversational_agent_actions, post_processing_pipeline=post_processing_pipeline)
+        pre_processing_pipeline = PreProcessingPipeline(list_of_pre_processors)
+
+        conversational_agents_hander = ConversationalAgentsHandler(agent_logic_actions=conversational_agent_actions, post_processing_pipeline=post_processing_pipeline, pre_processing_pipeline=pre_processing_pipeline)
 
         return conversational_agents_hander

@@ -9,12 +9,13 @@ from conversational_agents.agent_logic.base_decision_agent import BaseDecisionAg
 from conversational_agents.agent_logic.base_guiding_instructions import BaseGuidingInstructions
 from conversational_agents.base_conversational_agent import ConversationalAgent
 from conversational_agents.post_processing.post_processing_pipeline import PostProcessingPipeline
+from conversational_agents.pre_processing.pre_processing_pipeline import PreProcessingPipeline
 from data_models.data_models import AgentState, LLMAnswer, NextActionDecision, NextActionDecisionType
 from large_language_models.llm_factory import llm_factory
 
 class ConversationalAgentSimple(ConversationalAgent):
 
-    def __init__(self, user_id:str, prompts:str, decision_agent:BaseDecisionAgent, agent_logic:BaseAgentAction, guiding_instructions:BaseGuidingInstructions, post_processing_pipeline: PostProcessingPipeline):
+    def __init__(self, user_id:str, prompts:str, decision_agent:BaseDecisionAgent, agent_logic:BaseAgentAction, guiding_instructions:BaseGuidingInstructions, post_processing_pipeline: PostProcessingPipeline, pre_processing_pipeline: PreProcessingPipeline = None):
         super().__init__()
 
         self.state = AgentState(
@@ -29,6 +30,8 @@ class ConversationalAgentSimple(ConversationalAgent):
         self.agent_logic = agent_logic
         self.guiding_instructions = guiding_instructions
         self.postprocessing = post_processing_pipeline
+
+        self.preprocessing = pre_processing_pipeline
 
         self.model_config = {"configurable": {"session_id": self.state.user_id}}
 
@@ -81,7 +84,26 @@ class ConversationalAgentSimple(ConversationalAgent):
 
     async def instruct(self, instruction: str):
         self.state.instruction = instruction
+        
+        print(f"🔍 DEBUG ConversationalAgent BEFORE pre-processing:")
+        print(f"   - self.state type: {type(self.state)}")
+        print(f"   - self.state id: {id(self.state)}")
+        print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
 
+        # NEW: Run pre-processing BEFORE decision agent
+        if self.preprocessing != None:
+            print(f"🔍 DEBUG: Running pre-processing...")
+            self.state = self.preprocessing.invoke(self.state)
+            print(f"🔍 DEBUG ConversationalAgent AFTER pre-processing:")
+            print(f"   - self.state type: {type(self.state)}")
+            print(f"   - self.state id: {id(self.state)}")
+            print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
+            if hasattr(self.state, 'user_profile'):
+                print(f"   - self.state.user_profile: {self.state.user_profile}")
+        else:
+            print(f"❌ DEBUG: No pre-processing pipeline!")
+
+        print(f"🔍 DEBUG: Calling decision agent with state id: {id(self.state)}")
         next_action = self.decision_agent.next_action(agent_state=self.state)
 
         if next_action.type == NextActionDecisionType.PROMPT_ADAPTION: 
