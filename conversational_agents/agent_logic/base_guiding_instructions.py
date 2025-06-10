@@ -16,10 +16,30 @@ class GuidingInstructions(BaseGuidingInstructions):
 
     def add_guiding_instructions(self, next_action:NextActionDecision, agent_state: AgentState) -> AgentState:
         gi = agent_state.prompts['guiding_instructions']
-
         guiding_instruction_name = next_action.action
 
         if guiding_instruction_name in gi:
-            agent_state.instruction += " " + gi[guiding_instruction_name]
+            # FIXED: Speichere Guiding Instruction separat, NICHT an instruction anhängen
+            if not hasattr(agent_state, 'current_guiding_instruction'):
+                agent_state.current_guiding_instruction = ""
+            
+            agent_state.current_guiding_instruction = gi[guiding_instruction_name]
+            print(f"🎯 Added guiding instruction: {guiding_instruction_name}")
+            print(f"📝 Content: {gi[guiding_instruction_name]}")
 
         return agent_state
+
+# class GuidingInstructions(BaseGuidingInstructions):
+    
+#     def __init__(self):
+#         super().__init__()
+
+#     def add_guiding_instructions(self, next_action:NextActionDecision, agent_state: AgentState) -> AgentState:
+#         gi = agent_state.prompts['guiding_instructions']
+
+#         guiding_instruction_name = next_action.action
+
+#         if guiding_instruction_name in gi:
+#             agent_state.instruction += " " + gi[guiding_instruction_name]
+
+#         return agent_state

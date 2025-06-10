@@ -17,9 +17,10 @@ class DummyProcessing(BasePostProcessor):
         if llm_answer.payload is None:
             llm_answer.payload = {}
 
-        llm_answer.payload["dummy_post_processing"] = {
-            "foo": "bar"
-        }
+        # llm_answer.payload["dummy_post_processing"] = {
+        #     "foo": "bar"
+        # }
+        llm_answer.payload["chat_history"] = getattr(agent_state, 'chat_history', {})
 
         return llm_answer
 
