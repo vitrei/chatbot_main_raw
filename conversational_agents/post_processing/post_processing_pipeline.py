@@ -11,5 +11,5 @@ class PostProcessingPipeline():
 
     def invoke(self, agent_state: AgentState, llm_answer: LLMAnswer):
         for post_processor in self.post_processors:
-            llm_answer  = post_processor.invoke(llm_answer)
+            llm_answer  = post_processor.invoke(agent_state, llm_answer)
         return llm_answer
