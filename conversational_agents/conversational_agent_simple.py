@@ -85,29 +85,28 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def instruct(self, instruction: str):
         self.state.instruction = instruction
         
-        print(f"🔍 DEBUG ConversationalAgent BEFORE pre-processing:")
-        print(f"   - self.state type: {type(self.state)}")
-        print(f"   - self.state id: {id(self.state)}")
-        print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
+        # print(f"🔍 DEBUG ConversationalAgent BEFORE pre-processing:")
+        # print(f"   - self.state type: {type(self.state)}")
+        # print(f"   - self.state id: {id(self.state)}")
+        # print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
 
-        # NEW: Run pre-processing BEFORE decision agent
         if self.preprocessing != None:
-            print(f"🔍 DEBUG: Running pre-processing...")
-            self.state = self.preprocessing.invoke(self.state)
-            print(f"🔍 DEBUG ConversationalAgent AFTER pre-processing:")
-            print(f"   - self.state type: {type(self.state)}")
-            print(f"   - self.state id: {id(self.state)}")
-            print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
+            # print(f"DEBUG: Running pre-processing...")
+            # self.state = self.preprocessing.invoke(self.state)
+            # print(f"DEBUG ConversationalAgent AFTER pre-processing:")
+            # print(f"   - self.state type: {type(self.state)}")
+            # print(f"   - self.state id: {id(self.state)}")
+            # print(f"   - self.state has user_profile: {hasattr(self.state, 'user_profile')}")
             if hasattr(self.state, 'user_profile'):
                 print(f"   - self.state.user_profile: {self.state.user_profile}")
         else:
-            print(f"❌ DEBUG: No pre-processing pipeline!")
+            print(f"DEBUG: No pre-processing pipeline!")
 
-        print(f"🔍 DEBUG: Calling decision agent with state id: {id(self.state)}")
+        print(f"DEBUG: Calling decision agent with state id: {id(self.state)}")
         next_action = self.decision_agent.next_action(agent_state=self.state)
 
         if next_action.type == NextActionDecisionType.PROMPT_ADAPTION: 
-            pass # changing system prompt etc.
+            pass
 
         elif next_action.type == NextActionDecisionType.GUIDING_INSTRUCTIONS: 
             self.state = self.guiding_instructions.add_guiding_instructions(next_action, self.state)
@@ -138,7 +137,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         next_action = self.decision_agent.next_action(self.state)
 
         if next_action.type == NextActionDecisionType.PROMPT_ADAPTION: 
-            pass # changing system prompt etc. 
+            pass
 
         elif next_action.type == NextActionDecisionType.GUIDING_INSTRUCTIONS:
             self.state = self.guiding_instructions.add_guiding_instructions(next_action, self.state)
