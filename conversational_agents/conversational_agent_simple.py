@@ -34,10 +34,8 @@ class ConversationalAgentSimple(ConversationalAgent):
 
         self.model_config = {"configurable": {"session_id": self.state.user_id}}
 
-        # ERWEITERT: System Prompt mit Platz für User Profile
         system_prompt = " ".join(self.state.prompts['system_prompt'])
         
-        # NEU: Template mit User Profile Platzhalter
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt + "\n\n{user_profile_context}"),  # ← USER PROFILE HINZUGEFÜGT
@@ -70,11 +68,9 @@ class ConversationalAgentSimple(ConversationalAgent):
         
         profile = self.state.user_profile
         
-        # GLEICHE ausführliche Analyse wie vorher
         profile_info = []
         instructions = []
         
-        # Basic info (gleiche Logik)
         if profile.get('age'):
             profile_info.append(f"{profile['age']}J")
         if profile.get('school_type'):
@@ -82,7 +78,6 @@ class ConversationalAgentSimple(ConversationalAgent):
         if profile.get('region'):
             profile_info.append(f"{profile['region']}")
             
-        # Fake news competence (gleiche Logik)
         fake_news_skill = profile.get('fake_news_skill')
         if fake_news_skill:
             if fake_news_skill == 'master':
@@ -94,7 +89,6 @@ class ConversationalAgentSimple(ConversationalAgent):
             else:
                 profile_info.append(f"FN:{fake_news_skill}")
         
-        # Communication preferences (gleiche Logik)
         if profile.get('attention_span') == 'short':
             profile_info.append("Aufm:kurz")
             instructions.append("max 150 Zeichen")
@@ -115,17 +109,14 @@ class ConversationalAgentSimple(ConversationalAgent):
                 profile_info.append("Stil:sanft")
                 instructions.append("vorsichtig sein")
         
-        # Interests (gleiche Logik, aber gekürzt)
         if profile.get('interests'):
             interests = profile['interests'][:2]  # Nur erste 2
             profile_info.append(f"Interesse:{','.join(interests)}")
         
-        # Add guidance based on age (gleiche Logik)
         age = profile.get('age')
         if age and age < 16:
             instructions.append("jugendlich sprechen")
             
-        # GLEICHE Logik für alle anderen Eigenschaften
         if fake_news_skill == 'master':
             instructions.append("nicht leicht zufriedenstellen")
         elif fake_news_skill == 'low':
@@ -137,7 +128,6 @@ class ConversationalAgentSimple(ConversationalAgent):
         if profile.get('attention_span') == 'short':
             instructions.append("direkt zum Punkt")
         
-        # Komprimiertes Output - GLEICHE Info, weniger Tokens
         output_parts = []
         
         if profile_info:
@@ -151,7 +141,6 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def proactive_instruct(self):
         proactive_prompt = self.state.prompts['proactive_prompt']
 
-        # NEU: User Profile Context auch für proactive
         user_profile_context = self.format_user_profile_for_llm()
 
         llm_answer_text = ""
@@ -170,7 +159,6 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def proactive_stream(self): 
         proactive_prompt = self.state.prompts['proactive_prompt']
         
-        # NEU: User Profile Context auch für proactive stream
         user_profile_context = self.format_user_profile_for_llm()
         
         async for chunk in self.chat_chain.astream({
@@ -182,7 +170,6 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def instruct(self, instruction: str):
         self.state.instruction = instruction
         
-        # Pre-processing: User Profile laden
         if self.preprocessing != None:
             print(f"DEBUG: Running pre-processing...")
             self.state = self.preprocessing.invoke(self.state)
@@ -204,9 +191,8 @@ class ConversationalAgentSimple(ConversationalAgent):
             llm_answer = self.agent_logic.invoke(next_action, self.state)
 
         if self.generate_answer(next_action):
-            # NEU: User Profile Context für das LLM formatieren
             user_profile_context = self.format_user_profile_for_llm()
-            print(f"🔍 DEBUG: Sending user profile context to LLM:")
+            print(f"DEBUG: Sending user profile context to LLM:")
             # print(f"   Length: {len(user_profile_context)} chars")
             # print(f"   Preview: {user_profile_context[:200]}...")
             
@@ -231,7 +217,6 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def stream(self, instruction: str):   
         self.state.instruction = instruction
 
-        # NEU: Pre-processing auch für stream
         if self.preprocessing != None:
             self.state = self.preprocessing.invoke(self.state)
 
@@ -249,7 +234,6 @@ class ConversationalAgentSimple(ConversationalAgent):
         self.state.conversation_turn_counter += 1
         
         if self.generate_answer(next_action):
-            # NEU: User Profile Context auch für stream
             user_profile_context = self.format_user_profile_for_llm()
             
             async for chunk in self.chat_chain.astream({

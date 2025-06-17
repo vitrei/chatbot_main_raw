@@ -14,7 +14,6 @@ class LLMDecisionAgent(BaseDecisionAgent):
     def __init__(self):
         super().__init__()
         
-        # ERWEITERT: User Profile wird berücksichtigt
         decision_agent_prompt = """"
 Der Chatbot ist definiert durch folgenden Prompt:
 {system_prompt}
@@ -92,7 +91,6 @@ oder
         if not user_profile:
             return "Kein Profil - Standard-Logik."
             
-        # GLEICHE ausführliche Analyse wie vorher
         profile_data = []
         
         # Add available profile information (gleiche Logik)
@@ -122,7 +120,6 @@ oder
             interests_str = ",".join(user_profile['interests'][:3])  # Nur erste 3 Interessen
             profile_data.append(f"Interessen:{interests_str}")
         
-        # GLEICHE Empfehlungslogik, aber komprimiert
         recommendations = []
         
         age = user_profile.get('age')
@@ -146,7 +143,6 @@ oder
         if attention_span == 'short':
             recommendations.append("quick_response")
         
-        # Komprimiertes Output - GLEICHE Info, weniger Tokens
         if profile_data or recommendations:
             output_parts = []
             
@@ -156,7 +152,6 @@ oder
             if recommendations:
                 output_parts.append(f"AKTIONEN: {','.join(recommendations)}")
             
-            # Strategische Hinweise komprimiert
             turn_hint = "Turn0-1:source_check/skepticism, Turn2+:emotional_content"
             output_parts.append(f"STRATEGIE: {turn_hint}")
             
@@ -167,14 +162,13 @@ oder
     def next_action(self, agent_state: AgentState):
         
         # DEBUG: Check what's in agent_state
-        # print(f"🔍 DEBUG LLM Decision Agent:")
+        # print(f"DEBUG LLM Decision Agent:")
         # print(f"   - agent_state type: {type(agent_state)}")
         # print(f"   - agent_state user_id: {agent_state.user_id}")
         # print(f"   - conversation_turn_counter: {agent_state.conversation_turn_counter}")
         # print(f"   - agent_state has user_profile attr: {hasattr(agent_state, 'user_profile')}")
         
         
-        # Get user profile from agent_state (populated by pre-processor)
         user_profile_info = self.get_user_profile_info(agent_state)
         
         prompts = prompt_loader.get_all_prompts()
@@ -184,7 +178,6 @@ oder
         for key, value in guiding_instruction_prompts.items():
             guidings_instructions_str += f"{key}: {value}\n"
 
-        # ERWEITERT: Fake News spezifische Actions (anstatt nur path_prediction)
         actions = """Keine spezifischen Actions definiert für Fake News Gespräche."""
         chat_history = self.generate_dialog(agent_state.chat_history, agent_state.instruction)
         
@@ -192,7 +185,6 @@ oder
         print("🔍 Chat history:", chat_history)
         print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
 
-        # UNVERÄNDERT: Gleiche LLM-Logik, aber mit besserem User Profile Input
         response = self.chain.invoke(
             {
                 "system_prompt": system_prompt,
@@ -239,7 +231,6 @@ oder
         print("🎯 LLM Decision Result:", next_action_decision)
         return next_action_decision
     
-    # UNVERÄNDERT: Keep all your existing helper methods unchanged
     def is_json_parsable(self, s):
         try:
             json.loads(s)

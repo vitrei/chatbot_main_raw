@@ -14,7 +14,7 @@ class DummyProcessing(BasePostProcessor):
         self.timeout = timeout
     
     def invoke(self, agent_state, llm_answer):
-        # Existing emoji processing
+        # emoji processing
         emoji_pattern = re.compile(r"[\U00010000-\U0010FFFF]", flags=re.UNICODE)
         content = emoji_pattern.sub("", llm_answer.content)
         content = content.replace('\n', ' ').replace('\r', '')
@@ -23,7 +23,6 @@ class DummyProcessing(BasePostProcessor):
         if llm_answer.payload is None:
             llm_answer.payload = {}
         
-        # Existing chat history processing
         if hasattr(agent_state, 'chat_history') and agent_state.chat_history:
             full_dialog = self.decision_agent.generate_dialog(agent_state.chat_history, "")
             chat_history = full_dialog.rstrip().rstrip("Mensch:").strip()
@@ -31,7 +30,6 @@ class DummyProcessing(BasePostProcessor):
         else:
             llm_answer.payload["chat_history"] = ""
         
-        # NEW: Send conversation data asynchronously (fire-and-forget)
         asyncio.create_task(self.send_conversation_async(agent_state, llm_answer))
         
         return llm_answer
@@ -52,18 +50,17 @@ class DummyProcessing(BasePostProcessor):
                 "user_profile": getattr(agent_state, 'user_profile', None)
             }
             
-            # Send async POST
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 url = f"{self.user_profile_service_url}/conversation"
                 response = await client.post(url, json=conversation_data)
                 
                 if response.status_code == 200:
-                    print(f"✅ Conversation sent for user {agent_state.user_id}")
+                    print(f"Conversation sent for user {agent_state.user_id}")
                 else:
-                    print(f"⚠️  User profile service returned {response.status_code}")
+                    print(f"User profile service returned {response.status_code}")
                     
         except Exception as e:
-            print(f"❌ Error sending conversation: {e}")
+            print(f"Error sending conversation: {e}")
 
 
 # class DummyProcessing(BasePostProcessor):
