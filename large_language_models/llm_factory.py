@@ -54,7 +54,7 @@ class LLMFactory():
                     temperature=0.7
                 )
                 
-            elif model_name in ['llama3:latest']:
+            elif model_name in ['gemma3:27b']:
                 urls = json.loads(config.get("llm", "host_names_hka"))
                 chat_llm_url = random.choice(urls)
                 
