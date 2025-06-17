@@ -38,7 +38,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", system_prompt + "\n\n{user_profile_context}"),  # ← USER PROFILE HINZUGEFÜGT
+                ("system", system_prompt + "\n\n{user_profile_context}"),
                 MessagesPlaceholder("chat_history"),
                 ("human", "{input}"),
             ]
@@ -61,7 +61,7 @@ class ConversationalAgentSimple(ConversationalAgent):
     
     def format_user_profile_for_llm(self) -> str:
         """
-        Format user profile for inclusion in LLM context - GLEICHE LOGIK, komprimiertes Output
+        Format user profile for inclusion in LLM context - FIXED VERSION
         """
         if not hasattr(self.state, 'user_profile') or not self.state.user_profile:
             return ""
@@ -71,8 +71,19 @@ class ConversationalAgentSimple(ConversationalAgent):
         profile_info = []
         instructions = []
         
-        if profile.get('age'):
-            profile_info.append(f"{profile['age']}J")
+        # Safe age handling with type conversion
+        age = profile.get('age')
+        if age:
+            try:
+                age_int = int(age)  # Convert to int if it's a string
+                profile_info.append(f"{age_int}J")
+            except (ValueError, TypeError):
+                # If conversion fails, just use the original value as string
+                profile_info.append(f"{age}J")
+                age_int = None  # Set to None for later comparisons
+        else:
+            age_int = None
+            
         if profile.get('school_type'):
             profile_info.append(f"{profile['school_type']}")
         if profile.get('region'):
@@ -113,8 +124,8 @@ class ConversationalAgentSimple(ConversationalAgent):
             interests = profile['interests'][:2]  # Nur erste 2
             profile_info.append(f"Interesse:{','.join(interests)}")
         
-        age = profile.get('age')
-        if age and age < 16:
+        # Safe age comparison using converted integer
+        if age_int is not None and age_int < 16:
             instructions.append("jugendlich sprechen")
             
         if fake_news_skill == 'master':
@@ -146,7 +157,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         llm_answer_text = ""
         async for chunk in self.chat_chain.astream({
             "input": proactive_prompt,
-            "user_profile_context": user_profile_context  # ← USER PROFILE HINZUGEFÜGT
+            "user_profile_context": user_profile_context
         }, config=self.model_config):
             llm_answer_text += chunk.content
 
@@ -163,7 +174,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         
         async for chunk in self.chat_chain.astream({
             "input": proactive_prompt,
-            "user_profile_context": user_profile_context  # ← USER PROFILE HINZUGEFÜGT
+            "user_profile_context": user_profile_context
         }, config=self.model_config):
             yield chunk.content
 
@@ -173,8 +184,8 @@ class ConversationalAgentSimple(ConversationalAgent):
         if self.preprocessing != None:
             print(f"DEBUG: Running pre-processing...")
             self.state = self.preprocessing.invoke(self.state)
-            if hasattr(self.state, 'user_profile'):
-                print(f"   - self.state.user_profile: {self.state.user_profile}")
+            # if hasattr(self.state, 'user_profile'):
+                # print(f"   - self.state.user_profile: {self.state.user_profile}")
         else:
             print(f"DEBUG: No pre-processing pipeline!")
 
@@ -193,13 +204,11 @@ class ConversationalAgentSimple(ConversationalAgent):
         if self.generate_answer(next_action):
             user_profile_context = self.format_user_profile_for_llm()
             print(f"DEBUG: Sending user profile context to LLM:")
-            # print(f"   Length: {len(user_profile_context)} chars")
-            # print(f"   Preview: {user_profile_context[:200]}...")
             
             llm_answer_text = ""
             async for chunk in self.chat_chain.astream({
                 "input": self.state.instruction,
-                "user_profile_context": user_profile_context  # ← USER PROFILE HINZUGEFÜGT!
+                "user_profile_context": user_profile_context
             }, config=self.model_config):
                 llm_answer_text += chunk.content
                 
@@ -238,7 +247,7 @@ class ConversationalAgentSimple(ConversationalAgent):
             
             async for chunk in self.chat_chain.astream({
                 "input": self.state.instruction,
-                "user_profile_context": user_profile_context  # ← USER PROFILE HINZUGEFÜGT
+                "user_profile_context": user_profile_context
             }, config=self.model_config):
                 yield chunk.content
         else:

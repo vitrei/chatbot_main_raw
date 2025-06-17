@@ -38,7 +38,7 @@ class UserProfilePreProcessor(BasePreProcessor):
             agent_state.user_profile = None
             print(f"WARNING: No user profile available - continuing with default behavior")
         
-        print("=== PRE-PROCESSING COMPLETE ===")
+        # print("=== PRE-PROCESSING COMPLETE ===")
         return agent_state
     
     def get_user_profile_with_retries(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -165,7 +165,7 @@ class UserProfilePreProcessor(BasePreProcessor):
             cleaned = {k: v for k, v in extracted.items() if v is not None and v != '' and v != []}
             
             if cleaned:
-                print(f"Extracted {len(cleaned)} profile fields: {list(cleaned.keys())}")
+                # print(f"Extracted {len(cleaned)} profile fields: {list(cleaned.keys())}")
                 return cleaned
             else:
                 print(f"No meaningful profile data extracted")

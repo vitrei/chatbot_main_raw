@@ -181,9 +181,9 @@ oder
         actions = """Keine spezifischen Actions definiert für Fake News Gespräche."""
         chat_history = self.generate_dialog(agent_state.chat_history, agent_state.instruction)
         
-        print("🔍 User profile info for LLM:", user_profile_info if user_profile_info else "None available")
-        print("🔍 Chat history:", chat_history)
-        print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
+        # print("🔍 User profile info for LLM:", user_profile_info if user_profile_info else "None available")
+        # print("🔍 Chat history:", chat_history)
+        # print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
 
         response = self.chain.invoke(
             {
