@@ -115,16 +115,16 @@ class DummyProcessing(BasePostProcessor):
                 
                 print(f"✅ HTTP {response.status_code} from user profile service")
                 
-                if response.status_code == 200:
-                    print(f"✅ Conversation sent successfully for user {agent_state.user_id}")
-                    try:
-                        response_json = response.json()
-                        print(f"📝 Service response: {response_json}")
-                    except:
-                        print(f"📝 Service response (text): {response.text[:200]}...")
-                else:
-                    print(f"❌ User profile service returned {response.status_code}")
-                    print(f"📝 Response body: {response.text[:500]}...")
+                # if response.status_code == 200:
+                #     print(f"✅ Conversation sent successfully for user {agent_state.user_id}")
+                #     try:
+                #         response_json = response.json()
+                #         print(f"📝 Service response: {response_json}")
+                #     except:
+                #         print(f"📝 Service response (text): {response.text[:200]}...")
+                # else:
+                #     print(f"❌ User profile service returned {response.status_code}")
+                #     print(f"📝 Response body: {response.text[:500]}...")
                     
         except httpx.TimeoutException as e:
             print(f"⏰ Timeout error sending conversation: {e}")
