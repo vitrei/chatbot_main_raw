@@ -167,16 +167,6 @@ class ConversationalAgentSimple(ConversationalAgent):
             llm_answer = asdict(llm_answer)  
         return llm_answer
 
-    async def proactive_stream(self): 
-        proactive_prompt = self.state.prompts['proactive_prompt']
-        
-        user_profile_context = self.format_user_profile_for_llm()
-        
-        async for chunk in self.chat_chain.astream({
-            "input": proactive_prompt,
-            "user_profile_context": user_profile_context
-        }, config=self.model_config):
-            yield chunk.content
 
     async def instruct(self, instruction: str):
         self.state.instruction = instruction
@@ -223,6 +213,23 @@ class ConversationalAgentSimple(ConversationalAgent):
             llm_answer = asdict(llm_answer)  
         return llm_answer
 
+    def generate_answer(self, next_action:NextActionDecision):
+        return next_action.type in [NextActionDecisionType.PROMPT_ADAPTION, NextActionDecisionType.GENERATE_ANSWER, NextActionDecisionType.GUIDING_INSTRUCTIONS]
+
+
+
+
+    async def proactive_stream(self): 
+        proactive_prompt = self.state.prompts['proactive_prompt']
+        
+        user_profile_context = self.format_user_profile_for_llm()
+        
+        async for chunk in self.chat_chain.astream({
+            "input": proactive_prompt,
+            "user_profile_context": user_profile_context
+        }, config=self.model_config):
+            yield chunk.content
+    
     async def stream(self, instruction: str):   
         self.state.instruction = instruction
 
@@ -255,6 +262,3 @@ class ConversationalAgentSimple(ConversationalAgent):
                 yield json.dumps(asdict(llm_answer))  
             else:
                 yield str(llm_answer)
-
-    def generate_answer(self, next_action:NextActionDecision):
-        return next_action.type in [NextActionDecisionType.PROMPT_ADAPTION, NextActionDecisionType.GENERATE_ANSWER, NextActionDecisionType.GUIDING_INSTRUCTIONS]

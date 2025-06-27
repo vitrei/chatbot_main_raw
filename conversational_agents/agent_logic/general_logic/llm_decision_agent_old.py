@@ -23,6 +23,8 @@ Das ist der Dialog zwischen dem Chatbot und einem Menschen:
 
 {user_profile_info}
 
+WICHTIG: Berücksichtige das Benutzerprofil bei der Entscheidung! Wähle die Aktion, die am besten zum Benutzer passt.
+
 Der Chatbots soll nun die nächste sinnvolle Aktion ausführen. Mögliche Aktionen sind:
     GENERATE_ANSWER: Direkt eine Antwort generieren.
     GUIDING_INSTRUCTIONS: Den Dialog in eine bestimme Richtung lenken.
@@ -33,6 +35,15 @@ Mögliche GUIDING_INSTRUCTIONS mit key und description sind:
 
 Mögliche ACTION mit key und description sind:
     {actions}
+
+ENTSCHEIDUNGSHILFEN basierend auf Benutzerprofil:
+- Wenn Alter < 16: Nutze "young_user_guidance" 
+- Wenn fake_news_skill = "master": Nutze "expert_challenge"
+- Wenn fake_news_skill = "low": Nutze "beginner_support" 
+- Wenn current_mood = "mad": Nutze "gentle_approach"
+- Wenn attention_span = "short": Nutze "quick_response"
+- Bei ersten Gesprächen: Mehr "source_check" und "skepticism"
+- Bei späteren Gesprächen: Mehr "emotional_content" und fortgeschrittene Techniken
 
 Du gibst deine Antwort als JSON in folgender Weise:
 
@@ -57,7 +68,7 @@ oder
 
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", "Du bist ein Decision Agent und legst für eine Konversation zwischen einem Chatbot und einem Menschen fest, welche Aktion der Chatbot als nächstes ausführen soll."),
+                ("system", "Du bist ein intelligenter Decision Agent und wählst für eine Konversation zwischen einem Chatbot und einem Menschen die beste Aktion basierend auf dem Benutzerprofil und Gesprächskontext."),
                 ("human", decision_agent_prompt),
             ]
         )
@@ -70,87 +81,85 @@ oder
         try:
             if hasattr(agent_state, 'user_profile') and agent_state.user_profile:
                 return self.format_user_profile_for_prompt(agent_state.user_profile)
-            return ""
+            return "KEIN BENUTZERPROFIL VERFÜGBAR - verwende Standard-Entscheidungslogik."
         except Exception as e:
             print(f"DEBUG: Could not get user profile from agent_state: {e}")
-            return ""
+            return "FEHLER beim Laden des Benutzerprofils - verwende Standard-Entscheidungslogik."
 
     def format_user_profile_for_prompt(self, user_profile):
-        """Format user profile data for the prompt"""
+        """Format user profile data for the prompt - GLEICHE LOGIK, komprimiertes Output"""
         if not user_profile:
-            return ""
+            return "Kein Profil - Standard-Logik."
             
-        profile_lines = ["BENUTZER-PROFIL:"]
+        profile_data = []
         
-        # Add available profile information
+        # Add available profile information (gleiche Logik)
         if user_profile.get('age'):
-            profile_lines.append(f"- Alter: {user_profile['age']}")
+            profile_data.append(f"Alter:{user_profile['age']}")
         if user_profile.get('gender'):
-            profile_lines.append(f"- Geschlecht: {user_profile['gender']}")
+            profile_data.append(f"Geschlecht:{user_profile['gender']}")
         if user_profile.get('school_type'):
-            profile_lines.append(f"- Schultyp: {user_profile['school_type']}")
+            profile_data.append(f"Schule:{user_profile['school_type']}")
         if user_profile.get('region'):
-            profile_lines.append(f"- Region: {user_profile['region']}")
+            profile_data.append(f"Region:{user_profile['region']}")
         if user_profile.get('social_media_usage'):
-            profile_lines.append(f"- Social Media: {user_profile['social_media_usage']}")
+            profile_data.append(f"SocialMedia:{user_profile['social_media_usage']}")
         if user_profile.get('fake_news_skill'):
-            profile_lines.append(f"- Fake News Kompetenz: {user_profile['fake_news_skill']}")
+            profile_data.append(f"FakeNewsSkill:{user_profile['fake_news_skill']}")
         if user_profile.get('fact_checking_habits'):
-            profile_lines.append(f"- Faktenchecking: {user_profile['fact_checking_habits']}")
+            profile_data.append(f"Factcheck:{user_profile['fact_checking_habits']}")
         if user_profile.get('vocabulary_level'):
-            profile_lines.append(f"- Vokabular: {user_profile['vocabulary_level']}")
+            profile_data.append(f"Vokabular:{user_profile['vocabulary_level']}")
         if user_profile.get('interaction_style'):
-            profile_lines.append(f"- Interaktionsstil: {user_profile['interaction_style']}")
+            profile_data.append(f"Stil:{user_profile['interaction_style']}")
         if user_profile.get('attention_span'):
-            profile_lines.append(f"- Aufmerksamkeit: {user_profile['attention_span']}")
+            profile_data.append(f"Aufmerksamkeit:{user_profile['attention_span']}")
         if user_profile.get('current_mood'):
-            profile_lines.append(f"- Stimmung: {user_profile['current_mood']}")
+            profile_data.append(f"Stimmung:{user_profile['current_mood']}")
         if user_profile.get('interests'):
-            interests_str = ", ".join(user_profile['interests'])
-            profile_lines.append(f"- Interessen: {interests_str}")
+            interests_str = ",".join(user_profile['interests'][:3])  # Nur erste 3 Interessen
+            profile_data.append(f"Interessen:{interests_str}")
         
-        # Only add adaptive hints if we have meaningful profile data
-        if len(profile_lines) > 1:  # More than just the header
-            profile_lines.append("")
-            profile_lines.append("ADAPTIVE HINWEISE:")
+        recommendations = []
+        
+        age = user_profile.get('age')
+        if age:
+            if age < 16:
+                recommendations.append("young_user_guidance")
+            elif age < 18:
+                recommendations.append("lockere_sprache")
+        
+        fake_news_skill = user_profile.get('fake_news_skill')
+        if fake_news_skill == 'master':
+            recommendations.append("expert_challenge")
+        elif fake_news_skill == 'low':
+            recommendations.append("beginner_support")
+        
+        current_mood = user_profile.get('current_mood')
+        if current_mood == 'mad':
+            recommendations.append("gentle_approach")
+        
+        attention_span = user_profile.get('attention_span')
+        if attention_span == 'short':
+            recommendations.append("quick_response")
+        
+        if profile_data or recommendations:
+            output_parts = []
             
-            age = user_profile.get('age')
-            if age:
-                if age < 16:
-                    profile_lines.append("- Verwende sehr lockere, jugendliche Sprache")
-                elif age < 18:
-                    profile_lines.append("- Verwende lockere, altersgerechte Sprache")
+            if profile_data:
+                output_parts.append(f"PROFIL: {' | '.join(profile_data)}")
             
-            if user_profile.get('fake_news_skill') == 'master':
-                profile_lines.append("- Benutzer hält sich für Fake News Experte - stelle vorsichtig in Frage")
-            elif user_profile.get('fake_news_skill') == 'low':
-                profile_lines.append("- Erkläre Fake News Konzepte einfach und verständlich")
+            if recommendations:
+                output_parts.append(f"AKTIONEN: {','.join(recommendations)}")
             
-            if user_profile.get('current_mood') == 'mad':
-                profile_lines.append("- Benutzer ist schlecht gelaunt - sei besonders einfühlsam")
+            turn_hint = "Turn0-1:source_check/skepticism, Turn2+:emotional_content"
+            output_parts.append(f"STRATEGIE: {turn_hint}")
             
-            if user_profile.get('attention_span') == 'short':
-                profile_lines.append("- Halte Antworten extra kurz")
-            
-            return "\n".join(profile_lines)
+            return " || ".join(output_parts)
         else:
-            return ""
+            return "Profil leer - Standard-Logik."
 
-    def next_action(self, agent_state: AgentState):
-        
-        # DEBUG: Check what's in agent_state
-        print(f"🔍 DEBUG Decision Agent:")
-        print(f"   - agent_state type: {type(agent_state)}")
-        print(f"   - agent_state user_id: {agent_state.user_id}")
-        print(f"   - agent_state has user_profile attr: {hasattr(agent_state, 'user_profile')}")
-        
-        if hasattr(agent_state, 'user_profile'):
-            print(f"   - agent_state.user_profile: {agent_state.user_profile}")
-            print(f"   - user_profile type: {type(agent_state.user_profile)}")
-        else:
-            print(f"   - ❌ agent_state.user_profile MISSING!")
-        
-        # Get user profile from agent_state (populated by pre-processor)
+    def next_action(self, agent_state: AgentState):    
         user_profile_info = self.get_user_profile_info(agent_state)
         
         prompts = prompt_loader.get_all_prompts()
@@ -160,11 +169,12 @@ oder
         for key, value in guiding_instruction_prompts.items():
             guidings_instructions_str += f"{key}: {value}\n"
 
-        actions = """path_prediction: Empfehle einen Bildungspfad, wie die Person an den gewünschten Beruf kommt."""
+        actions = """Keine spezifischen Actions definiert für Fake News Gespräche."""
         chat_history = self.generate_dialog(agent_state.chat_history, agent_state.instruction)
         
-        print("User profile info:", user_profile_info if user_profile_info else "None available")
-        print("chat_history", chat_history)
+        # print("🔍 User profile info for LLM:", user_profile_info if user_profile_info else "None available")
+        # print("🔍 Chat history:", chat_history)
+        # print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
 
         response = self.chain.invoke(
             {
@@ -209,10 +219,9 @@ oder
             action=action
         )
 
-        print("next_action_decision:", next_action_decision)
+        print("LLM Decision Result:", next_action_decision)
         return next_action_decision
     
-    # Keep all your existing helper methods unchanged
     def is_json_parsable(self, s):
         try:
             json.loads(s)

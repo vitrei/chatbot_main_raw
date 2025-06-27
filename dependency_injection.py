@@ -6,6 +6,8 @@ from conversational_agents.conversational_agents_handler import ConversationalAg
 from conversational_agents.post_processing.post_processing_pipeline import PostProcessingPipeline
 from conversational_agents.pre_processing.pre_processing_pipeline import PreProcessingPipeline
 
+
+
 def dynamic_import(class_path: str):
     """Dynamically import a class or variable from a module string path."""
     module_name, class_name = class_path.rsplit(".", 1) 
@@ -19,25 +21,6 @@ actions = {}
 if config != None and "actions" in config and config["actions"] != None and config["actions"] != "":
     actions = dynamic_import(config["actions"])
 
-
-class DecisionAgentFactory():
-     
-     def __init__(self):
-          pass
-     
-     def create(self):
-        
-        if config == None or 'BaseDecisionAgent' not in config:
-            DecisionAgentClass = dynamic_import('conversational_agents.agent_logic.general_logic.conversation_only_decision_agent.ConversationOnlyDecisionAgent')
-        else:
-            DecisionAgentClass = dynamic_import(config["BaseDecisionAgent"])
-        if not issubclass(DecisionAgentClass, BaseDecisionAgent):
-            raise TypeError(f"{DecisionAgentClass.__name__} must be a subclass of BaseDecisionAgent")
-
-        decision_agent_instance = DecisionAgentClass()
-
-        return decision_agent_instance
-     
 class ConversationalAgentsHandlerFactory():
 
     def __init__(self):
@@ -75,3 +58,22 @@ class ConversationalAgentsHandlerFactory():
         conversational_agents_hander = ConversationalAgentsHandler(agent_logic_actions=conversational_agent_actions, post_processing_pipeline=post_processing_pipeline, pre_processing_pipeline=pre_processing_pipeline)
 
         return conversational_agents_hander
+
+class DecisionAgentFactory():
+     
+     def __init__(self):
+          pass
+     
+     def create(self):
+        
+        if config == None or 'BaseDecisionAgent' not in config:
+            DecisionAgentClass = dynamic_import('conversational_agents.agent_logic.general_logic.conversation_only_decision_agent.ConversationOnlyDecisionAgent')
+        else:
+            DecisionAgentClass = dynamic_import(config["BaseDecisionAgent"])
+        if not issubclass(DecisionAgentClass, BaseDecisionAgent):
+            raise TypeError(f"{DecisionAgentClass.__name__} must be a subclass of BaseDecisionAgent")
+
+        decision_agent_instance = DecisionAgentClass()
+
+        return decision_agent_instance
+

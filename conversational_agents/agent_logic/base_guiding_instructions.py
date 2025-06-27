@@ -19,13 +19,12 @@ class GuidingInstructions(BaseGuidingInstructions):
         guiding_instruction_name = next_action.action
 
         if guiding_instruction_name in gi:
-            # FIXED: Speichere Guiding Instruction separat, NICHT an instruction anhängen
             if not hasattr(agent_state, 'current_guiding_instruction'):
                 agent_state.current_guiding_instruction = ""
             
             agent_state.current_guiding_instruction = gi[guiding_instruction_name]
-            print(f"🎯 Added guiding instruction: {guiding_instruction_name}")
-            print(f"📝 Content: {gi[guiding_instruction_name]}")
+            print(f"Added guiding instruction: {guiding_instruction_name}")
+            print(f"Content: {gi[guiding_instruction_name]}")
 
         return agent_state
 

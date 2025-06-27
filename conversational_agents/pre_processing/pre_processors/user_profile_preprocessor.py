@@ -1,4 +1,5 @@
-import requests
+import asyncio
+import httpx
 from typing import Optional, Dict, Any
 from conversational_agents.pre_processing.pre_processors.base_pre_processors import BasePreProcessor
 from data_models.data_models import AgentState
@@ -19,31 +20,42 @@ class UserProfilePreProcessor(BasePreProcessor):
         
     def invoke(self, agent_state: AgentState) -> AgentState:
         """
-        Invoke pre-processing with robust error handling
-        Always returns agent_state (with or without user_profile)
+        Invoke pre-processing with async user profile fetching
+        Returns agent_state immediately, profile loads asynchronously
         """
         print("=== USER PROFILE PRE-PROCESSING ===")
         print(f"Processing user_id: {agent_state.user_id}")
         print(f"Timeout: {self.timeout}s, Max retries: {self.max_retries}")
         
-        # Try to get user profile with retries
-        user_profile_data = self.get_user_profile_with_retries(agent_state.user_id)
-            
-        # Always set user_profile (None if failed)
-        if user_profile_data:
-            agent_state.user_profile = user_profile_data
-            # print(f"SUCCESS: User profile loaded with {len(user_profile_data)} fields")
-            # print(f"Profile keys: {list(user_profile_data.keys())}")
-        else:
-            agent_state.user_profile = None
-            print(f"WARNING: No user profile available - continuing with default behavior")
+        # Start async profile loading (non-blocking)
+        asyncio.create_task(self.load_user_profile_async(agent_state))
         
-        # print("=== PRE-PROCESSING COMPLETE ===")
+        # Return immediately with empty profile (will be populated async)
+        agent_state.user_profile = None
+        print("Pre-processing complete - profile loading in background")
         return agent_state
-    
-    def get_user_profile_with_retries(self, user_id: str) -> Optional[Dict[str, Any]]:
+
+    async def load_user_profile_async(self, agent_state: AgentState):
         """
-        Fetch user profile with robust error handling and retries
+        Load user profile asynchronously and update agent_state
+        """
+        try:
+            user_profile_data = await self.get_user_profile_with_retries_async(agent_state.user_id)
+            
+            if user_profile_data:
+                agent_state.user_profile = user_profile_data
+                print(f"✅ User profile loaded asynchronously for {agent_state.user_id}")
+            else:
+                agent_state.user_profile = None
+                print(f"⚠️ No user profile available for {agent_state.user_id}")
+                
+        except Exception as e:
+            print(f"❌ Error loading user profile async: {e}")
+            agent_state.user_profile = None
+
+    async def get_user_profile_with_retries_async(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch user profile with robust error handling and retries (async version)
         
         Returns:
             Dict with user profile data or None if failed
@@ -53,47 +65,79 @@ class UserProfilePreProcessor(BasePreProcessor):
             try:
                 print(f"Attempt {attempt + 1}/{self.max_retries + 1}: Fetching user profile...")
                 
-                url = f"{self.user_profile_service_url}/users/{user_id}"
-                print(f"GET {url}")
-                
-                response = requests.get(url, timeout=self.timeout)
-                print(f"Response: {response.status_code}")
-                
-                if response.status_code == 200:
-                    profile_data = response.json()
-                    processed_profile = self.extract_profile_info(profile_data, user_id)
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    url = f"{self.user_profile_service_url}/users/{user_id}"
+                    print(f"GET {url}")
+                    response = await client.get(url)
+                    print(f"Response: {response.status_code}")
                     
-                    if processed_profile:
-                        print(f"Success on attempt {attempt + 1}")
-                        return processed_profile
-                    else:
-                        print(f"Empty profile data on attempt {attempt + 1}")
+                    if response.status_code == 200:
+                        profile_data = response.json()
+                        processed_profile = self.extract_profile_info(profile_data, user_id)
+                        if processed_profile:
+                            print(f"Success on attempt {attempt + 1}")
+                            return processed_profile
+                        else:
+                            print(f"Empty profile data on attempt {attempt + 1}")
+                            
+                    elif response.status_code == 404 or response.status_code == 500:
+                        print(f"User {user_id} not found (HTTP {response.status_code}) - creating user with demographics...")
                         
-                elif response.status_code == 404:
-                    print(f"User {user_id} not found - no retries needed")
-                    return None  # Don't retry for 404
-                    
-                else:
-                    print(f"HTTP {response.status_code} on attempt {attempt + 1}")
-                    
-            except requests.exceptions.Timeout:
+                        # Call create-user-with-demographics endpoint
+                        try:
+                            create_url = f"{self.user_profile_service_url}/create-user-with-demographics/{user_id}"
+                            print(f"POST {create_url}")
+                            create_response = await client.post(create_url)
+                            print(f"Create response: {create_response.status_code}")
+                            
+                            if create_response.status_code == 200:
+                                # User created successfully, extract the profile
+                                create_result = create_response.json()
+                                raw_profile = create_result.get("profile")
+                                
+                                if raw_profile:
+                                    # Process the profile using your existing method
+                                    processed_profile = self.extract_profile_info({"profile": raw_profile}, user_id)
+                                    if processed_profile:
+                                        print(f"Successfully created user {user_id} with demographics - Age: {create_result.get('profile', {}).get('demographics', {}).get('age', 'unknown')}, Gender: {create_result.get('profile', {}).get('demographics', {}).get('gender', 'unknown')}")
+                                        return processed_profile
+                                    else:
+                                        print(f"Failed to process created profile for user {user_id}")
+                                else:
+                                    print(f"No profile data in creation response for user {user_id}")
+                                    
+                            else:
+                                print(f"Failed to create user {user_id}: HTTP {create_response.status_code}")
+                                if create_response.status_code == 404:
+                                    print("No images available for user creation with demographics")
+                                elif create_response.status_code == 500:
+                                    print("Error during demographics analysis or user creation")
+                                
+                        except httpx.RequestError as create_error:
+                            print(f"Error during user creation with demographics: {create_error}")
+                        
+                        # Return None after creation attempt (whether successful or not)
+                        return None
+                        
+                    else:
+                        print(f"HTTP {response.status_code} on attempt {attempt + 1}")
+                        
+            except httpx.TimeoutException:
                 print(f"TIMEOUT on attempt {attempt + 1} (>{self.timeout}s)")
-                
-            except requests.exceptions.ConnectionError:
+            except httpx.ConnectError:
                 print(f"CONNECTION ERROR on attempt {attempt + 1}")
-                
             except Exception as e:
                 print(f"UNEXPECTED ERROR on attempt {attempt + 1}: {e}")
-            
+                
             if attempt < self.max_retries:
-                import time
-                wait_time = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s...
+                wait_time = 0.5 * (2 ** attempt)
                 print(f"Waiting {wait_time}s before retry...")
-                time.sleep(wait_time)
+                await asyncio.sleep(wait_time)
         
         print(f"All {self.max_retries + 1} attempts failed")
         return None
-    
+
+    # Keep your existing extraction methods unchanged
     def extract_profile_info(self, raw_data: Dict[str, Any], user_id: str) -> Optional[Dict[str, Any]]:
         """
         Extract and clean profile information from raw API response
@@ -165,7 +209,6 @@ class UserProfilePreProcessor(BasePreProcessor):
             cleaned = {k: v for k, v in extracted.items() if v is not None and v != '' and v != []}
             
             if cleaned:
-                # print(f"Extracted {len(cleaned)} profile fields: {list(cleaned.keys())}")
                 return cleaned
             else:
                 print(f"No meaningful profile data extracted")
