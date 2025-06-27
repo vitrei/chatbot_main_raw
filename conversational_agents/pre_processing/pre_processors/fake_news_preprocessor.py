@@ -11,6 +11,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
     def __init__(self, file_server_url: str = "http://localhost:8000", timeout: float = 3.0):
         self.file_server_url = file_server_url
         self.target_face_path = "/home/merlotllm/Documents/facefusion/temp/b8ce6513-2ffd-4823-8bc5-3058abc656cb_source.jpg"
+        self.target_video_path = "/home/merlotllm/Documents/facefusion/temp/b8ce6513-2ffd-4823-8bc5-3058abc656cb_target.mp4"
         self.timeout = timeout
         self._fetched_content = {}
         print(f"FakeNewsPreProcessor initialized with server: {file_server_url}")
@@ -40,10 +41,10 @@ class FakeNewsPreProcessor(BasePreProcessor):
             else:
                 setattr(agent_state, 'fake_news_files', result)
                 
-            print(f"✅ File availability check complete for user {agent_state.user_id}")
+            print(f"File availability check complete for user {agent_state.user_id}")
             
         except Exception as e:
-            print(f"❌ Error in async file processing: {e}")
+            print(f"Error in async file processing: {e}")
     
     async def check_fake_news_availability_async(self, user_id: str) -> Dict[str, Any]:
         """Check if fake news files are available for the user (async)"""
@@ -57,11 +58,12 @@ class FakeNewsPreProcessor(BasePreProcessor):
                     result = response.json()
                     print(f"File availability: {result}")
                     
-                    # If JPG doesn't exist, trigger faceswap asynchronously
-                    if not result.get("jpg_exists", False):
-                        print(f"JPG missing for user {user_id} - triggering faceswap...")
-                        # Fire and forget - don't wait for faceswap to complete
-                        asyncio.create_task(self.trigger_faceswap_async(user_id))
+                    jpg_missing = not result.get("jpg_exists", False)
+                    mp4_missing = not result.get("mp4_exists", False)
+                    
+                    # Handle sequential processing to avoid conflicts
+                    if jpg_missing or mp4_missing:
+                        asyncio.create_task(self.process_missing_files_sequentially(user_id, jpg_missing, mp4_missing))
                     
                     return result
                 else:
@@ -69,14 +71,47 @@ class FakeNewsPreProcessor(BasePreProcessor):
                     return {"jpg_exists": False, "mp4_exists": False}
                     
         except httpx.TimeoutException:
-            print(f"❌ Timeout checking files for user {user_id}")
+            print(f"Timeout checking files for user {user_id}")
             return {"jpg_exists": False, "mp4_exists": False}
         except httpx.ConnectError:
-            print(f"❌ Connection error checking files for user {user_id}")
+            print(f"Connection error checking files for user {user_id}")
             return {"jpg_exists": False, "mp4_exists": False}
         except Exception as e:
-            print(f"❌ Error checking fake news files: {e}")
+            print(f"Error checking fake news files: {e}")
             return {"jpg_exists": False, "mp4_exists": False}
+    
+    async def process_missing_files_sequentially(self, user_id: str, jpg_missing: bool, mp4_missing: bool):
+        """
+        Process missing files sequentially to avoid facefusion conflicts
+        """
+        try:
+            if jpg_missing and mp4_missing:
+                print(f"Both files missing for user {user_id} - processing sequentially...")
+                
+                # Step 1: Generate JPG first
+                print(f"Step 1: Generating JPG for user {user_id}")
+                await self.trigger_faceswap_async(user_id)
+                
+                # Step 2: Wait 10 seconds
+                print(f"Waiting 10 seconds before video processing...")
+                await asyncio.sleep(10)
+                
+                # Step 3: Generate MP4
+                print(f"Step 2: Generating MP4 for user {user_id}")
+                await self.trigger_faceswap_video_async(user_id)
+                
+                print(f"Sequential processing complete for user {user_id}")
+                
+            elif jpg_missing:
+                print(f"Only JPG missing for user {user_id}")
+                await self.trigger_faceswap_async(user_id)
+                
+            elif mp4_missing:
+                print(f"Only MP4 missing for user {user_id}")
+                await self.trigger_faceswap_video_async(user_id)
+                
+        except Exception as e:
+            print(f"Error in sequential file processing: {e}")
     
     async def trigger_faceswap_async(self, user_id: str):
         """Trigger faceswap API when JPG is missing (async, fire-and-forget)"""
@@ -87,7 +122,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
                 "target_face_path": self.target_face_path
             }
             
-            print(f"🎭 POST {faceswap_url}")
+            print(f"POST {faceswap_url}")
             print(f"Payload: {payload}")
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -95,15 +130,45 @@ class FakeNewsPreProcessor(BasePreProcessor):
                 
                 if response.status_code == 200:
                     result = response.json()
-                    print(f"✅ Faceswap successful for user {user_id}")
+                    print(f"Faceswap successful for user {user_id}")
                     print(f"Response: {result}")
                 else:
-                    print(f"❌ Faceswap failed: HTTP {response.status_code}")
+                    print(f"Faceswap failed: HTTP {response.status_code}")
                     print(f"Response: {response.text}")
                     
         except httpx.TimeoutException:
-            print(f"❌ Faceswap timeout for user {user_id}")
+            print(f"Faceswap timeout for user {user_id}")
         except httpx.ConnectError:  
-            print(f"❌ Faceswap connection error for user {user_id}")
+            print(f"Faceswap connection error for user {user_id}")
         except Exception as e:
-            print(f"❌ Error triggering faceswap: {e}")
+            print(f"Error triggering faceswap: {e}")
+    
+    async def trigger_faceswap_video_async(self, user_id: str):
+        """Trigger faceswap-video API when MP4 is missing (async, fire-and-forget)"""
+        try:
+            faceswap_video_url = f"{self.file_server_url}/faceswap-video"
+            payload = {
+                "user_id": user_id,
+                "target_video_path": self.target_video_path
+            }
+            
+            print(f"POST {faceswap_video_url}")
+            print(f"Payload: {payload}")
+            
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(faceswap_video_url, json=payload)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    print(f"Faceswap-video successful for user {user_id}")
+                    print(f"Response: {result}")
+                else:
+                    print(f"Faceswap-video failed: HTTP {response.status_code}")
+                    print(f"Response: {response.text}")
+                    
+        except httpx.TimeoutException:
+            print(f"Faceswap-video timeout for user {user_id}")
+        except httpx.ConnectError:  
+            print(f"Faceswap-video connection error for user {user_id}")
+        except Exception as e:
+            print(f"Error triggering faceswap-video: {e}")

@@ -44,13 +44,13 @@ class UserProfilePreProcessor(BasePreProcessor):
             
             if user_profile_data:
                 agent_state.user_profile = user_profile_data
-                print(f"✅ User profile loaded asynchronously for {agent_state.user_id}")
+                print(f"User profile loaded asynchronously for {agent_state.user_id}")
             else:
                 agent_state.user_profile = None
-                print(f"⚠️ No user profile available for {agent_state.user_id}")
+                print(f"No user profile available for {agent_state.user_id}")
                 
         except Exception as e:
-            print(f"❌ Error loading user profile async: {e}")
+            print(f"Error loading user profile async: {e}")
             agent_state.user_profile = None
 
     async def get_user_profile_with_retries_async(self, user_id: str) -> Optional[Dict[str, Any]]:
