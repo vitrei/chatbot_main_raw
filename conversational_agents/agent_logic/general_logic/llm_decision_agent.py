@@ -7,6 +7,7 @@ from langchain_core.messages.ai import AIMessageChunk
 from data_models.data_models import AgentState, NextActionDecision, NextActionDecisionType
 from conversational_agents.agent_logic.base_decision_agent import BaseDecisionAgent
 from large_language_models.llm_factory import llm_factory
+from conversational_agents.agent_logic.state_machine_wrapper import create_state_machine_from_prompts
 from prompts.prompt_loader import prompt_loader
 
 class LLMDecisionAgent(BaseDecisionAgent):
@@ -14,70 +15,125 @@ class LLMDecisionAgent(BaseDecisionAgent):
     def __init__(self):
         super().__init__()
         
-        decision_agent_prompt = """"
+        decision_agent_prompt = """
 Der Chatbot ist definiert durch folgenden Prompt:
 {system_prompt}
 
-Das ist der Dialog zwischen dem Chatbot und einem Menschen:
+AKTUELLER GESPRÄCHSVERLAUF:
 {chat_history}
 
+STATE MACHINE KONTEXT:
+- Aktueller State: {current_state}
+- Mögliche Transitions: {available_transitions}
+- State-spezifische Anweisungen: {state_specific_instructions}
+
+GESPRÄCHS-KONTEXT:
+- Turn: {turn_counter}
+- Letzte User-Nachricht: {last_user_message}
+
+BENUTZERPROFIL:
 {user_profile_info}
 
-WICHTIG: Berücksichtige das Benutzerprofil bei der Entscheidung! Wähle die Aktion, die am besten zum Benutzer passt.
+WICHTIG: Du steuerst eine strukturierte Fake-News-Aufklärungs-Konversation durch State Machine Phasen!
 
-Der Chatbots soll nun die nächste sinnvolle Aktion ausführen. Mögliche Aktionen sind:
-    GENERATE_ANSWER: Direkt eine Antwort generieren.
-    GUIDING_INSTRUCTIONS: Den Dialog in eine bestimme Richtung lenken.
-    ACTION: Eine externe Funktion aufrufen, z.B. einen API-Call.
+DEINE AUFGABEN:
+1. ANALYSIERE die User-Reaktion und den aktuellen State
+2. WÄHLE die passende Guiding Instruction für das VERHALTEN des Bots (young_user_guidance, gentle_approach, etc.)
+3. ENTSCHEIDE ob ein State-Transition notwendig ist basierend auf dem INHALT/THEMA
 
-Mögliche GUIDING_INSTRUCTIONS mit key und description sind:
-    {guiding_instructions}
+WICHTIGE UNTERSCHEIDUNG:
+- GUIDING_INSTRUCTIONS = WIE der Bot sich verhält (Tonfall, Stil, Länge)
+- STATE_TRANSITIONS = WAS der Bot thematisch behandeln soll (init_greeting, stimulus_present, etc.)
 
-Mögliche ACTION mit key und description sind:
-    {actions}
+ENTSCHEIDUNGSLOGIK FÜR GUIDING INSTRUCTIONS:
+- Alter <16: "young_user_guidance" 
+- User emotional aufgewühlt: "gentle_approach"
+- User braucht kurze Antworten: "quick_response"
+- User ist Experte: "expert_challenge"
+- User ist Anfänger: "beginner_support"
+- Sonst: "general_guidance"
 
-ENTSCHEIDUNGSHILFEN basierend auf Benutzerprofil:
-- Wenn Alter < 16: Nutze "young_user_guidance" 
-- Wenn fake_news_skill = "master": Nutze "expert_challenge"
-- Wenn fake_news_skill = "low": Nutze "beginner_support" 
-- Wenn current_mood = "mad": Nutze "gentle_approach"
-- Wenn attention_span = "short": Nutze "quick_response"
-- Bei ersten Gesprächen: Mehr "source_check" und "skepticism"
-- Bei späteren Gesprächen: Mehr "emotional_content" und fortgeschrittene Techniken
+ENTSCHEIDUNGSLOGIK FÜR STATE TRANSITIONS:
+- Turn 0-1: Von init_greeting zu engagement_hook
+- User zeigt Interesse: Weiter zur nächsten Phase
+- User skeptisch/ablehnend: conversation_repair
+- User emotional: comfort_needed
+- Phase abgeschlossen: Zur logisch nächsten Phase
 
-Du gibst deine Antwort als JSON in folgender Weise:
+VERFÜGBARE GUIDING_INSTRUCTIONS (für BOT-VERHALTEN):
+{guiding_instructions}
 
-{{
-    "next_action": "GENERATE_ANSWER"
-}}
+MÖGLICHE TRANSITIONS (für THEMEN-WECHSEL):
+{transition_options}
 
-oder
+Du gibst deine Antwort als JSON zurück:
 
 {{
     "next_action": "GUIDING_INSTRUCTIONS",
-    "type": "<key>"
-}}
-
-oder
-
-{{
-    "next_action": "ACTION",
-    "type": "<key>"
+    "guiding_instruction": "<behavioral_instruction_key>",
+    "state_transition": {{
+        "needed": true/false,
+        "trigger": "<trigger_name>",
+        "reason": "<warum dieser transition>"
+    }},
+    "reason": "<kurze Begründung für Instruction-Wahl>"
 }}
 """
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", "Du bist ein intelligenter Decision Agent und wählst für eine Konversation zwischen einem Chatbot und einem Menschen die beste Aktion basierend auf dem Benutzerprofil und Gesprächskontext."),
-                ("human", decision_agent_prompt),
-            ]
-        )
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Du bist ein intelligenter Decision Agent für strukturierte Fake-News-Aufklärungsgespräche mit State Machine Integration."),
+            ("human", decision_agent_prompt),
+        ])
 
         llm = llm_factory.get_llm()
         self.chain = prompt | llm 
 
+    def get_state_machine_context(self, agent_state):
+        """Extract state machine context from agent state"""
+        if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+            print("❌ No state machine found in agent_state")
+            return {
+                'current_state': 'init_greeting',  # Use default initial state
+                'available_transitions': [],
+                'state_specific_instructions': 'No state machine available - using default state'
+            }
+        
+        sm = agent_state.state_machine
+        context = sm.get_state_context_for_decision_agent()
+        print(f"🎰 State Machine Context: {context}")
+        
+        # Get state-specific instructions from prompts
+        state_prompts = agent_state.prompts.get('state_system_prompts', {})
+        current_state_instructions = state_prompts.get(context['current_state'], ['No specific instructions'])
+        
+        return {
+            'current_state': context['current_state'],
+            'available_transitions': context['available_transitions'],
+            'state_specific_instructions': '\n'.join(current_state_instructions)
+        }
+
+    def get_transition_options_text(self, available_transitions):
+        """Format available transitions for prompt"""
+        if not available_transitions:
+            return "Keine Transitions verfügbar"
+        
+        options = []
+        for transition in available_transitions:
+            options.append(f"- {transition['trigger']}: {transition['description']} -> {transition['dest']}")
+        
+        return '\n'.join(options)
+
+    def get_last_user_message(self, chat_history_dict):
+        """Extract the last user message from chat history"""
+        for session_id, history in chat_history_dict.items():
+            if history.messages:
+                last_message = history.messages[-1]
+                if isinstance(last_message, HumanMessage):
+                    return last_message.content
+        return "No user message found"
+
     def get_user_profile_info(self, agent_state):
-        """Get user profile info from agent_state (populated by pre-processor)"""
+        """Get user profile info from agent_state"""
         try:
             if hasattr(agent_state, 'user_profile') and agent_state.user_profile:
                 return self.format_user_profile_for_prompt(agent_state.user_profile)
@@ -85,63 +141,30 @@ oder
         except Exception as e:
             print(f"DEBUG: Could not get user profile from agent_state: {e}")
             return "FEHLER beim Laden des Benutzerprofils - verwende Standard-Entscheidungslogik."
-    
-    def get_fake_news_info(self, agent_state):
-        """Get fake news info from agent_state (populated by pre-processor)"""
-        try:
-            if hasattr(agent_state, 'fake_news_data') and agent_state.fake_news_data:
-                fake_news_data = agent_state.fake_news_data
-                if fake_news_data.get("available"):
-                    return f"Fake news content available: {fake_news_data['type']} file at {fake_news_data['path']}"
-            
-            # Return None when no fake news data is available (don't include in prompt)
-            return None
-        except Exception as e:
-            print(f"DEBUG: Could not get fake news data from agent_state: {e}")
-            return None
 
     def format_user_profile_for_prompt(self, user_profile):
-        """Format user profile data for the prompt - GLEICHE LOGIK, komprimiertes Output"""
+        """Format user profile data for the prompt"""
         if not user_profile:
             return "Kein Profil - Standard-Logik."
             
         profile_data = []
         
-        # Add available profile information (gleiche Logik)
         if user_profile.get('age'):
             profile_data.append(f"Alter:{user_profile['age']}")
-        if user_profile.get('gender'):
-            profile_data.append(f"Geschlecht:{user_profile['gender']}")
-        if user_profile.get('school_type'):
-            profile_data.append(f"Schule:{user_profile['school_type']}")
-        if user_profile.get('region'):
-            profile_data.append(f"Region:{user_profile['region']}")
-        if user_profile.get('social_media_usage'):
-            profile_data.append(f"SocialMedia:{user_profile['social_media_usage']}")
         if user_profile.get('fake_news_skill'):
             profile_data.append(f"FakeNewsSkill:{user_profile['fake_news_skill']}")
-        if user_profile.get('fact_checking_habits'):
-            profile_data.append(f"Factcheck:{user_profile['fact_checking_habits']}")
-        if user_profile.get('vocabulary_level'):
-            profile_data.append(f"Vokabular:{user_profile['vocabulary_level']}")
-        if user_profile.get('interaction_style'):
-            profile_data.append(f"Stil:{user_profile['interaction_style']}")
         if user_profile.get('attention_span'):
             profile_data.append(f"Aufmerksamkeit:{user_profile['attention_span']}")
         if user_profile.get('current_mood'):
             profile_data.append(f"Stimmung:{user_profile['current_mood']}")
-        if user_profile.get('interests'):
-            interests_str = ",".join(user_profile['interests'][:3])  # Nur erste 3 Interessen
-            profile_data.append(f"Interessen:{interests_str}")
+        if user_profile.get('interaction_style'):
+            profile_data.append(f"Stil:{user_profile['interaction_style']}")
         
+        # Recommendations based on profile
         recommendations = []
-        
         age = user_profile.get('age')
-        if age:
-            if age < 16:
-                recommendations.append("young_user_guidance")
-            elif age < 18:
-                recommendations.append("lockere_sprache")
+        if age and age < 16:
+            recommendations.append("young_user_guidance")
         
         fake_news_skill = user_profile.get('fake_news_skill')
         if fake_news_skill == 'master':
@@ -157,107 +180,126 @@ oder
         if attention_span == 'short':
             recommendations.append("quick_response")
         
-        if profile_data or recommendations:
-            output_parts = []
-            
-            if profile_data:
-                output_parts.append(f"PROFIL: {' | '.join(profile_data)}")
-            
-            if recommendations:
-                output_parts.append(f"AKTIONEN: {','.join(recommendations)}")
-            
-            turn_hint = "Turn0-1:source_check/skepticism, Turn2+:emotional_content"
-            output_parts.append(f"STRATEGIE: {turn_hint}")
-            
-            return " || ".join(output_parts)
-        else:
-            return "Profil leer - Standard-Logik."
+        output_parts = []
+        if profile_data:
+            output_parts.append(f"PROFIL: {' | '.join(profile_data)}")
+        if recommendations:
+            output_parts.append(f"ZUSÄTZLICHE ANWEISUNGEN: {','.join(recommendations)}")
+        
+        return " || ".join(output_parts) if output_parts else "Profil leer - Standard-Logik."
 
-    def next_action(self, agent_state: AgentState):    
+    def add_state_machine_to_agent_state(self, agent_state):
+        """Add state machine to existing AgentState"""
+        
+        if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+            state_machine = create_state_machine_from_prompts(agent_state.prompts)
+            agent_state.state_machine = state_machine
+            print(f"🎰 State Machine added to AgentState: {state_machine.get_current_state() if state_machine else 'Failed'}")
+        
+        return agent_state
+
+    def next_action(self, agent_state: AgentState):
+        print(f"🔢 TURN COUNTER: {agent_state.conversation_turn_counter}")
+        
+        # Ensure state machine is initialized
+        agent_state = self.add_state_machine_to_agent_state(agent_state)
+        
+        # Get state machine context
+        sm_context = self.get_state_machine_context(agent_state)
+        print(f"🎰 CURRENT STATE: {sm_context['current_state']}")
+        print(f"🔄 AVAILABLE TRANSITIONS: {len(sm_context['available_transitions'])}")
+        
         user_profile_info = self.get_user_profile_info(agent_state)
-        fake_news_info = self.get_fake_news_info(agent_state)
         
         prompts = prompt_loader.get_all_prompts()
         system_prompt = prompts['system_prompt']
         guiding_instruction_prompts = prompts['guiding_instructions']
-        guidings_instructions_str = "" 
+        
+        # Format guiding instructions for prompt
+        guidings_instructions_str = ""
         for key, value in guiding_instruction_prompts.items():
             guidings_instructions_str += f"{key}: {value}\n"
 
-        actions = """Keine spezifischen Actions definiert für Fake News Gespräche."""
         chat_history = self.generate_dialog(agent_state.chat_history, agent_state.instruction)
+        last_user_message = self.get_last_user_message(agent_state.chat_history)
+        transition_options = self.get_transition_options_text(sm_context['available_transitions'])
         
-        # print("🔍 User profile info for LLM:", user_profile_info if user_profile_info else "None available")
-        # print("🔍 Chat history:", chat_history)
-            # print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
         prompt_data = {
             "system_prompt": system_prompt,
             "chat_history": chat_history,
+            "current_state": sm_context['current_state'],
+            "available_transitions": sm_context['available_transitions'],
+            "state_specific_instructions": sm_context['state_specific_instructions'],
+            "turn_counter": agent_state.conversation_turn_counter,
+            "last_user_message": last_user_message,
             "user_profile_info": user_profile_info,
             "guiding_instructions": guidings_instructions_str,
-            "actions": actions
+            "transition_options": transition_options
         }
-        
-        # Only include fake_news_info if it exists
-        if fake_news_info:
-            prompt_data["fake_news_info"] = fake_news_info
-            print(f"DEBUG: Including fake news info in decision prompt")
-        else:
-            print(f"DEBUG: No fake news info to include in decision prompt")
         
         response = self.chain.invoke(prompt_data)
-        # response = self.chain.invoke(
-        #     {
-        #         "system_prompt": system_prompt,
-        #         "chat_history": chat_history,
-        #         "user_profile_info": user_profile_info,
-        #         "guiding_instructions": guidings_instructions_str,
-        #         "actions": actions
-        #     }
-        # )
-
         response_json = response.content
 
-        while response_json == None or not self.is_json_parsable(response_json):
-            print("Not a valid JSON. Retrying...")
-            response = self.chain.invoke(
-                {
-                    "system_prompt": system_prompt,
-                    "chat_history": chat_history,
-                    "user_profile_info": user_profile_info,
-                    "guiding_instructions": guidings_instructions_str,
-                    "actions": actions
-                }
-            )
+        # Retry logic for invalid JSON
+        retry_count = 0
+        max_retries = 3
+        while (response_json == None or not self.is_json_parsable(response_json)) and retry_count < max_retries:
+            print(f"Not a valid JSON. Retrying... ({retry_count + 1}/{max_retries})")
+            response = self.chain.invoke(prompt_data)
             response_json = self.extract_json_from_string(response.content)
+            retry_count += 1
+        
+        if not self.is_json_parsable(response_json):
+            print("❌ Failed to get valid JSON after retries. Using fallback decision.")
+            return self.create_fallback_decision(sm_context)
         
         llm_decision = json.loads(response_json)
+        print(f"🤖 LLM DECISION RAW: {llm_decision}")
 
-        decision_type_mapping = {
-            "GENERATE_ANSWER": NextActionDecisionType.GENERATE_ANSWER,
-            "GUIDING_INSTRUCTIONS": NextActionDecisionType.GUIDING_INSTRUCTIONS,
-            "ACTION": NextActionDecisionType.ACTION
-        }
+        # Handle state transition if needed
+        if llm_decision.get('state_transition', {}).get('needed', False):
+            transition_info = llm_decision['state_transition']
+            trigger = transition_info.get('trigger')
+            reason = transition_info.get('reason', 'No reason provided')
+            
+            if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
+                success = agent_state.state_machine.execute_transition(trigger, reason)
+                if success:
+                    print(f"✅ STATE TRANSITION EXECUTED: {trigger}")
+                else:
+                    print(f"❌ STATE TRANSITION FAILED: {trigger}")
 
-        decision_type = decision_type_mapping[llm_decision['next_action']]
-        action = None
-        if 'type' in llm_decision:
-            action = llm_decision['type']
+        # Create decision for guiding instruction
+        guiding_instruction = llm_decision.get('guiding_instruction', sm_context['current_state'])
+        
+        if 'reason' in llm_decision:
+            print(f"📝 INSTRUCTION REASON: {llm_decision['reason']}")
 
         next_action_decision = NextActionDecision(
-            type=decision_type,
-            action=action
+            type=NextActionDecisionType.GUIDING_INSTRUCTIONS,
+            action=guiding_instruction
         )
 
-        print("LLM Decision Result:", next_action_decision)
+        print(f"✅ FINAL DECISION: {next_action_decision}")
         return next_action_decision
+
+    def create_fallback_decision(self, sm_context):
+        """Create a fallback decision when LLM fails"""
+        current_state = sm_context['current_state']
+        
+        # Use current state as guiding instruction if available
+        fallback_instruction = current_state if current_state != 'unknown' else 'general_guidance'
+        
+        return NextActionDecision(
+            type=NextActionDecisionType.GUIDING_INSTRUCTIONS,
+            action=fallback_instruction
+        )
     
     def is_json_parsable(self, s):
         try:
             json.loads(s)
             return True
         except:
-            print("Not JSON parsable")
             return False
         
     def extract_json_from_string(self, s):

@@ -33,5 +33,7 @@ class AgentState:
     chat_history: list
     prompts: dict
     user_profile: dict = None
-    
+    state_machine: 'ConversationStateMachine' = None  # Add state machine reference
+    current_guiding_instruction: str = None  # Current guiding instruction content
+    current_guiding_instruction_name: str = None  # Current guiding instruction name
 

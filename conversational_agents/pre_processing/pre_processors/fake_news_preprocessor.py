@@ -22,10 +22,8 @@ class FakeNewsPreProcessor(BasePreProcessor):
         """
         print(f"🔍 Starting fake news availability check for user {agent_state.user_id}")
         
-        # Start async file check (non-blocking)
         asyncio.create_task(self.check_and_process_files_async(agent_state))
         
-        # Return immediately - file check happens in background
         return agent_state
     
     async def check_and_process_files_async(self, agent_state):
@@ -35,7 +33,6 @@ class FakeNewsPreProcessor(BasePreProcessor):
         try:
             result = await self.check_fake_news_availability_async(agent_state.user_id)
             
-            # Store result in agent_state for future use
             if hasattr(agent_state, 'fake_news_files'):
                 agent_state.fake_news_files = result
             else:
@@ -61,7 +58,6 @@ class FakeNewsPreProcessor(BasePreProcessor):
                     jpg_missing = not result.get("jpg_exists", False)
                     mp4_missing = not result.get("mp4_exists", False)
                     
-                    # Handle sequential processing to avoid conflicts
                     if jpg_missing or mp4_missing:
                         asyncio.create_task(self.process_missing_files_sequentially(user_id, jpg_missing, mp4_missing))
                     

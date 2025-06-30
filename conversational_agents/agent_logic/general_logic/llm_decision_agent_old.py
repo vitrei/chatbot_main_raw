@@ -85,6 +85,20 @@ oder
         except Exception as e:
             print(f"DEBUG: Could not get user profile from agent_state: {e}")
             return "FEHLER beim Laden des Benutzerprofils - verwende Standard-Entscheidungslogik."
+    
+    def get_fake_news_info(self, agent_state):
+        """Get fake news info from agent_state (populated by pre-processor)"""
+        try:
+            if hasattr(agent_state, 'fake_news_data') and agent_state.fake_news_data:
+                fake_news_data = agent_state.fake_news_data
+                if fake_news_data.get("available"):
+                    return f"Fake news content available: {fake_news_data['type']} file at {fake_news_data['path']}"
+            
+            # Return None when no fake news data is available (don't include in prompt)
+            return None
+        except Exception as e:
+            print(f"DEBUG: Could not get fake news data from agent_state: {e}")
+            return None
 
     def format_user_profile_for_prompt(self, user_profile):
         """Format user profile data for the prompt - GLEICHE LOGIK, komprimiertes Output"""
@@ -161,6 +175,7 @@ oder
 
     def next_action(self, agent_state: AgentState):    
         user_profile_info = self.get_user_profile_info(agent_state)
+        fake_news_info = self.get_fake_news_info(agent_state)
         
         prompts = prompt_loader.get_all_prompts()
         system_prompt = prompts['system_prompt']
@@ -174,17 +189,32 @@ oder
         
         # print("🔍 User profile info for LLM:", user_profile_info if user_profile_info else "None available")
         # print("🔍 Chat history:", chat_history)
-        # print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
-
-        response = self.chain.invoke(
-            {
-                "system_prompt": system_prompt,
-                "chat_history": chat_history,
-                "user_profile_info": user_profile_info,
-                "guiding_instructions": guidings_instructions_str,
-                "actions": actions
-            }
-        )
+            # print(f"🔍 Turn counter: {agent_state.conversation_turn_counter}")
+        prompt_data = {
+            "system_prompt": system_prompt,
+            "chat_history": chat_history,
+            "user_profile_info": user_profile_info,
+            "guiding_instructions": guidings_instructions_str,
+            "actions": actions
+        }
+        
+        # Only include fake_news_info if it exists
+        if fake_news_info:
+            prompt_data["fake_news_info"] = fake_news_info
+            print(f"DEBUG: Including fake news info in decision prompt")
+        else:
+            print(f"DEBUG: No fake news info to include in decision prompt")
+        
+        response = self.chain.invoke(prompt_data)
+        # response = self.chain.invoke(
+        #     {
+        #         "system_prompt": system_prompt,
+        #         "chat_history": chat_history,
+        #         "user_profile_info": user_profile_info,
+        #         "guiding_instructions": guidings_instructions_str,
+        #         "actions": actions
+        #     }
+        # )
 
         response_json = response.content
 
@@ -221,6 +251,7 @@ oder
 
         print("LLM Decision Result:", next_action_decision)
         return next_action_decision
+    
     
     def is_json_parsable(self, s):
         try:

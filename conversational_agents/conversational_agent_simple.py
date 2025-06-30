@@ -58,6 +58,135 @@ class ConversationalAgentSimple(ConversationalAgent):
         if session_id not in self.state.chat_history:
             self.state.chat_history[session_id] = InMemoryChatMessageHistory()
         return self.state.chat_history[session_id]
+
+    def get_current_state_from_state_machine(self):
+        """Extract current state from state machine"""
+        if hasattr(self.state, 'state_machine') and self.state.state_machine:
+            return self.state.state_machine.get_current_state()
+        return "init_greeting"  # fallback to initial state
+
+    def get_current_system_prompt(self):
+        """Build system prompt including current state-specific prompt and guiding instructions"""
+        base_system_prompt = " ".join(self.state.prompts['system_prompt'])
+        
+        # Get current state from state machine (not from guiding instruction)
+        current_state = self.get_current_state_from_state_machine()
+        
+        # Get state-specific system prompt
+        state_prompts = self.state.prompts.get('state_system_prompts', {})
+        state_specific_prompt = state_prompts.get(current_state, [])
+        
+        # Get current guiding instruction (behavioral guidance)
+        behavioral_instruction = ""
+        if hasattr(self.state, 'current_guiding_instruction'):
+            behavioral_instruction = self.state.current_guiding_instruction
+        
+        # Build comprehensive system prompt with STRONG emphasis on state instructions
+        prompt_parts = [base_system_prompt]
+        
+        if state_specific_prompt:
+            state_prompt_text = " ".join(state_specific_prompt)
+            prompt_parts.append(f"🎭 DREHBUCH/PFLICHTAUFGABE ({current_state}): {state_prompt_text}")
+            prompt_parts.append("WICHTIG: Du MUSST diese Drehbuch-Anweisungen befolgen! Ignoriere nicht was der User sagt, aber folge primär dem Drehbuch!")
+        
+        if behavioral_instruction:
+            prompt_parts.append(f"🎪 STIL UND VERHALTEN: {behavioral_instruction}")
+        
+        # Add stronger instruction hierarchy
+        prompt_parts.append("PRIORITÄTEN: 1) Befolge das DREHBUCH, 2) Berücksichtige User-Input, 3) Halte den vorgeschriebenen STIL bei")
+        
+        combined_prompt = "\n\n".join(prompt_parts)
+        return f"{combined_prompt}\n\n{{user_profile_context}}"
+
+    def get_state_examples(self, current_state):
+        """Get few-shot examples for current state from JSON"""
+        try:
+            state_examples = self.state.prompts.get('state_examples', {})
+            examples = state_examples.get(current_state, [])
+            
+            # Convert JSON format to ChatPromptTemplate format
+            formatted_examples = []
+            for example in examples:
+                role = example.get('role', 'human')
+                content = example.get('content', '')
+                formatted_examples.append((role, content))
+            
+            print(f"🎭 LOADED {len(formatted_examples)} EXAMPLES for state: {current_state}")
+            return formatted_examples
+        except Exception as e:
+            print(f"❌ ERROR loading examples for {current_state}: {e}")
+            return []
+
+    def build_dynamic_prompt(self, current_state):
+        """Build dynamic prompt with STRONG state-specific enforcement"""
+        try:
+            # Get state-specific instructions and examples
+            state_prompts = self.state.prompts.get('state_system_prompts', {})
+            state_instructions = state_prompts.get(current_state, [])
+            examples = self.get_state_examples(current_state)
+            
+            # Get behavioral guidance
+            behavioral_instruction = ""
+            if hasattr(self.state, 'current_guiding_instruction'):
+                # Extract only the behavioral part (before "INHALT/PHASE:")
+                full_instruction = self.state.current_guiding_instruction
+                if "VERHALTEN:" in full_instruction:
+                    behavioral_part = full_instruction.split("INHALT/PHASE:")[0].replace("VERHALTEN:", "").strip()
+                    behavioral_instruction = behavioral_part
+            
+            # Build DIRECTIVE system prompt
+            base_prompt = " ".join(self.state.prompts['system_prompt'])
+            
+            # Create VERY directive system prompt
+            system_prompt_parts = [
+                base_prompt,
+                "",
+                "🎭 DEINE AKTUELLE SZENE/AUFGABE:",
+                f"State: {current_state}",
+                "Du MUSST folgende Aufgabe erfüllen:",
+            ]
+            
+            if state_instructions:
+                for instruction in state_instructions:
+                    system_prompt_parts.append(f"- {instruction}")
+            
+            system_prompt_parts.extend([
+                "",
+                "🎪 WIE DU DICH VERHALTEN SOLLST:",
+                behavioral_instruction if behavioral_instruction else "Natürlich und locker sprechen.",
+                "",
+                "⚠️ WICHTIG: Du befolgst ZUERST deine Szenen-Aufgabe, dann berücksichtigst du den User-Input!",
+                "Ignoriere NICHT was der User sagt, aber deine Haupt-Priorität ist es, deine Szenen-Aufgabe zu erfüllen!",
+                "",
+                "{user_profile_context}"
+            ])
+            
+            system_prompt = "\n".join(system_prompt_parts)
+            
+            # Build messages with examples
+            messages = [("system", system_prompt)]
+            
+            # Add few-shot examples to REINFORCE the correct behavior
+            if examples:
+                messages.extend(examples)
+                print(f"🎭 ADDED {len(examples)} REINFORCEMENT EXAMPLES")
+            
+            # Add chat history and current input
+            messages.extend([
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}")
+            ])
+            
+            return ChatPromptTemplate.from_messages(messages)
+            
+        except Exception as e:
+            print(f"❌ ERROR building dynamic prompt: {e}")
+            # Fallback
+            return ChatPromptTemplate.from_messages([
+                ("system", self.get_current_system_prompt()),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}")
+            ])
     
     def format_user_profile_for_llm(self) -> str:
         """
@@ -148,6 +277,23 @@ class ConversationalAgentSimple(ConversationalAgent):
             output_parts.append(f"Anpassungen: {', '.join(instructions)}")
         
         return " || ".join(output_parts) if output_parts else ""
+
+    def analyze_response_compliance(self, current_state, response_text):
+        """Analyze if the response follows state instructions"""
+        state_keywords = {
+            'engagement_hook': ['video', 'sieht', 'ähnlich', 'komisch', 'weird'],
+            'stimulus_present': ['tanzen', 'schule', 'ernst', 'untypisch', 'peinlich', 'überraschend'],
+            'reaction_wait': ['gefühlt', 'weird', 'reaktion'],
+            'explore_path': ['glaubwürdig', 'dagegen', 'sprechen'],
+            'comfort_user': ['entspann', 'video gibt es nicht', 'demonstration'],
+            'confirm_skepticism': ['gut beobachtet', 'skeptisch', 'wichtig']
+        }
+        
+        keywords = state_keywords.get(current_state, [])
+        matches = sum(1 for keyword in keywords if keyword.lower() in response_text.lower())
+        compliance_score = matches / len(keywords) if keywords else 0
+        
+        return f"{compliance_score:.1%} (matched {matches}/{len(keywords)} keywords)"
     
     async def proactive_instruct(self):
         proactive_prompt = self.state.prompts['proactive_prompt']
@@ -174,8 +320,6 @@ class ConversationalAgentSimple(ConversationalAgent):
         if self.preprocessing != None:
             print(f"DEBUG: Running pre-processing...")
             self.state = self.preprocessing.invoke(self.state)
-            # if hasattr(self.state, 'user_profile'):
-                # print(f"   - self.state.user_profile: {self.state.user_profile}")
         else:
             print(f"DEBUG: No pre-processing pipeline!")
 
@@ -187,22 +331,59 @@ class ConversationalAgentSimple(ConversationalAgent):
 
         elif next_action.type == NextActionDecisionType.GUIDING_INSTRUCTIONS: 
             self.state = self.guiding_instructions.add_guiding_instructions(next_action, self.state)
+            # Store current guiding instruction name for behavioral reference
+            self.state.current_guiding_instruction_name = next_action.action
 
         elif next_action.type == NextActionDecisionType.ACTION:
             llm_answer = self.agent_logic.invoke(next_action, self.state)
 
         if self.generate_answer(next_action):
+            # Get REAL current state from state machine (not behavioral instruction)
+            current_state = self.get_current_state_from_state_machine()
+            print(f"🎯 ACTUAL STATE MACHINE STATE: {current_state}")
+            
+            # Build dynamic prompt with state-specific content and examples
+            dynamic_prompt = self.build_dynamic_prompt(current_state)
+            
+            llm = llm_factory.get_llm()
+            chain = dynamic_prompt | llm
+
+            chat_chain = RunnableWithMessageHistory(
+                chain,
+                self.get_session_history,
+                input_messages_key="input",
+                history_messages_key="chat_history"
+            )
+            
             user_profile_context = self.format_user_profile_for_llm()
-            print(f"DEBUG: Sending user profile context to LLM:")
+            
+            # Debug output showing state machine context
+            if hasattr(self.state, 'state_machine') and self.state.state_machine:
+                available_transitions = self.state.state_machine.get_available_transitions()
+                print(f"🎰 STATE MACHINE STATE: {current_state}")
+                print(f"🔄 AVAILABLE TRANSITIONS: {[t['trigger'] for t in available_transitions]}")
+            
+            print(f"🎯 BEHAVIORAL INSTRUCTION: {getattr(self.state, 'current_guiding_instruction_name', 'None')}")
+            print(f"💭 COMBINED GUIDANCE: {getattr(self.state, 'current_guiding_instruction', 'None')[:100] if hasattr(self.state, 'current_guiding_instruction') else 'None'}...")
+            print(f"DEBUG: Using state-specific prompt and examples for state machine state: {current_state}")
+            
+            # Debug: Show what exact instructions the LLM gets
+            state_prompts = self.state.prompts.get('state_system_prompts', {})
+            state_instructions = state_prompts.get(current_state, [])
+            print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM:")
+            for i, instruction in enumerate(state_instructions, 1):
+                print(f"   {i}. {instruction}")
             
             llm_answer_text = ""
-            async for chunk in self.chat_chain.astream({
+            async for chunk in chat_chain.astream({
                 "input": self.state.instruction,
                 "user_profile_context": user_profile_context
             }, config=self.model_config):
                 llm_answer_text += chunk.content
                 
-            llm_answer = LLMAnswer(content=llm_answer_text)            
+            print(f"🤖 LLM RESPONSE: {llm_answer_text[:100]}...")
+            print(f"🔍 RESPONSE ANALYSIS: Does it follow state instructions? {self.analyze_response_compliance(current_state, llm_answer_text)}")
+            llm_answer = LLMAnswer(content=llm_answer_text)       
 
         if self.postprocessing != None:
             llm_answer = self.postprocessing.invoke(self.state, llm_answer) 
@@ -215,9 +396,6 @@ class ConversationalAgentSimple(ConversationalAgent):
 
     def generate_answer(self, next_action:NextActionDecision):
         return next_action.type in [NextActionDecisionType.PROMPT_ADAPTION, NextActionDecisionType.GENERATE_ANSWER, NextActionDecisionType.GUIDING_INSTRUCTIONS]
-
-
-
 
     async def proactive_stream(self): 
         proactive_prompt = self.state.prompts['proactive_prompt']
@@ -250,9 +428,23 @@ class ConversationalAgentSimple(ConversationalAgent):
         self.state.conversation_turn_counter += 1
         
         if self.generate_answer(next_action):
+            # Use real state machine state for streaming too
+            current_state = self.get_current_state_from_state_machine()
+            dynamic_prompt = self.build_dynamic_prompt(current_state)
+            
+            llm = llm_factory.get_llm()
+            chain = dynamic_prompt | llm
+
+            chat_chain = RunnableWithMessageHistory(
+                chain,
+                self.get_session_history,
+                input_messages_key="input",
+                history_messages_key="chat_history"
+            )
+            
             user_profile_context = self.format_user_profile_for_llm()
             
-            async for chunk in self.chat_chain.astream({
+            async for chunk in chat_chain.astream({
                 "input": self.state.instruction,
                 "user_profile_context": user_profile_context
             }, config=self.model_config):
