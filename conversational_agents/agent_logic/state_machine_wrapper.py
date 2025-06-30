@@ -95,8 +95,18 @@ class ConversationStateMachine:
         return {
             'current_state': self.state,
             'available_transitions': self.get_available_transitions(),
-            'state_description': f"Conversation is in phase: {self.state}"
+            'state_description': f"Conversation is in phase: {self.state}",
+            'fake_news_stimulus_url': getattr(self, 'fake_news_stimulus_url', None)
         }
+
+    def set_fake_news_stimulus_available(self, user_id):
+        """Set fake news stimulus as available with URL"""
+        self.fake_news_stimulus_url = f"http://localhost:8000/instagram_tablet/{user_id}"
+        print(f"🎬 FAKE NEWS STIMULUS AVAILABLE: {self.fake_news_stimulus_url}")
+
+    def is_fake_news_stimulus_available(self):
+        """Check if fake news stimulus is available"""
+        return hasattr(self, 'fake_news_stimulus_url') and self.fake_news_stimulus_url is not None
 
 def create_state_machine_from_prompts(prompts):
     """Create state machine from prompts configuration"""

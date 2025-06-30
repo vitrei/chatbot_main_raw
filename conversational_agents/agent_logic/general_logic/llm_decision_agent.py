@@ -96,7 +96,9 @@ Du gibst deine Antwort als valides JSON zurück:
             return {
                 'current_state': 'init_greeting',  # default initial state
                 'available_transitions': [],
-                'state_specific_instructions': 'No state machine available - using default state'
+                'state_specific_instructions': 'No state machine available - using default state',
+                'fake_news_available': False,
+                'fake_news_stimulus_url': None
             }
         
         sm = agent_state.state_machine
@@ -104,7 +106,15 @@ Du gibst deine Antwort als valides JSON zurück:
         transition_destinations = [t['dest'] for t in context['available_transitions']]
         print("Available states to transition to:")
         print(transition_destinations)
-        # print(f"🎰 State Machine Context: {context}")
+        
+        # Check for fake news stimulus availability
+        fake_news_url = context.get('fake_news_stimulus_url')
+        fake_news_available = fake_news_url is not None
+        
+        if fake_news_available:
+            print(f"🎬 FAKE NEWS STIMULUS READY: {fake_news_url}")
+        else:
+            print("📭 No fake news stimulus available")
         
         # Get state-specific instructions from prompts
         state_prompts = agent_state.prompts.get('state_system_prompts', {})
@@ -113,7 +123,9 @@ Du gibst deine Antwort als valides JSON zurück:
         return {
             'current_state': context['current_state'],
             'available_transitions': context['available_transitions'],
-            'state_specific_instructions': '\n'.join(current_state_instructions)
+            'state_specific_instructions': '\n'.join(current_state_instructions),
+            'fake_news_available': fake_news_available,
+            'fake_news_stimulus_url': fake_news_url
         }
 
     def get_transition_options_text(self, available_transitions):
@@ -287,7 +299,12 @@ Du gibst deine Antwort als valides JSON zurück:
 
         next_action_decision = NextActionDecision(
             type=NextActionDecisionType.GUIDING_INSTRUCTIONS,
-            action=guiding_instruction
+            action=guiding_instruction,
+            payload={
+                'fake_news_available': sm_context.get('fake_news_available', False),
+                'fake_news_url': sm_context.get('fake_news_stimulus_url'),
+                'current_state': sm_context['current_state']
+            }
         )
 
         print(f"✅ FINAL DECISION: {next_action_decision}")

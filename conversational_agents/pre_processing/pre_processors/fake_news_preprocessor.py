@@ -14,7 +14,8 @@ class FakeNewsPreProcessor(BasePreProcessor):
         self.target_video_path = "/home/merlotllm/Documents/facefusion/temp/b8ce6513-2ffd-4823-8bc5-3058abc656cb_target.mp4"
         self.timeout = timeout
         self._fetched_content = {}
-        print(f"FakeNewsPreProcessor initialized with server: {file_server_url}")
+        self._fake_news_available = {}
+        # print(f"FakeNewsPreProcessor initialized with server: {file_server_url}")
     
     def invoke(self, agent_state):
         """
@@ -22,26 +23,18 @@ class FakeNewsPreProcessor(BasePreProcessor):
         """
         print(f"🔍 Starting fake news availability check for user {agent_state.user_id}")
         
-        asyncio.create_task(self.check_and_process_files_async(agent_state))
+        # Check cache first
+        if agent_state.user_id in self._fake_news_available:
+            fake_news_ready = self._fake_news_available[agent_state.user_id]
+            print(f"📋 Cached result: Fake news available = {fake_news_ready}")
+            
+            if fake_news_ready and hasattr(agent_state, 'state_machine') and agent_state.state_machine:
+                agent_state.state_machine.set_fake_news_stimulus_available(agent_state.user_id)
+        else:
+            # Start async check in background
+            asyncio.create_task(self.check_and_process_files_async(agent_state))
         
         return agent_state
-    
-    async def check_and_process_files_async(self, agent_state):
-        """
-        Check file availability and trigger faceswap if needed (async)
-        """
-        try:
-            result = await self.check_fake_news_availability_async(agent_state.user_id)
-            
-            if hasattr(agent_state, 'fake_news_files'):
-                agent_state.fake_news_files = result
-            else:
-                setattr(agent_state, 'fake_news_files', result)
-                
-            print(f"File availability check complete for user {agent_state.user_id}")
-            
-        except Exception as e:
-            print(f"Error in async file processing: {e}")
     
     async def check_fake_news_availability_async(self, user_id: str) -> Dict[str, Any]:
         """Check if fake news files are available for the user (async)"""
@@ -75,6 +68,32 @@ class FakeNewsPreProcessor(BasePreProcessor):
         except Exception as e:
             print(f"Error checking fake news files: {e}")
             return {"jpg_exists": False, "mp4_exists": False}
+
+    async def check_and_process_files_async(self, agent_state):
+        """
+        Check file availability and cache result
+        """
+        try:
+            result = await self.check_fake_news_availability_async(agent_state.user_id)
+            
+            # Cache the result
+            fake_news_ready = result.get('jpg_exists', False) and result.get('mp4_exists', False)
+            self._fake_news_available[agent_state.user_id] = fake_news_ready
+            
+            if fake_news_ready:
+                print(f"✅ Fake news files ready for user {agent_state.user_id}")
+                # Set in state machine if available
+                if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
+                    agent_state.state_machine.set_fake_news_stimulus_available(agent_state.user_id)
+            else:
+                print(f"❌ Fake news files not ready for user {agent_state.user_id}")
+                
+            print(f"File availability check complete for user {agent_state.user_id}")
+            
+        except Exception as e:
+            print(f"Error in async file processing: {e}")
+            # Cache negative result on error
+            self._fake_news_available[agent_state.user_id] = False
     
     async def process_missing_files_sequentially(self, user_id: str, jpg_missing: bool, mp4_missing: bool):
         """
@@ -110,7 +129,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
             print(f"Error in sequential file processing: {e}")
     
     async def trigger_faceswap_async(self, user_id: str):
-        """Trigger faceswap API when JPG is missing (async, fire-and-forget)"""
+        """Trigger faceswap API when JPG is missing"""
         try:
             faceswap_url = f"{self.file_server_url}/faceswap"
             payload = {
@@ -140,7 +159,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
             print(f"Error triggering faceswap: {e}")
     
     async def trigger_faceswap_video_async(self, user_id: str):
-        """Trigger faceswap-video API when MP4 is missing (async, fire-and-forget)"""
+        """Trigger faceswap-video API when MP4 is missing"""
         try:
             faceswap_video_url = f"{self.file_server_url}/faceswap-video"
             payload = {

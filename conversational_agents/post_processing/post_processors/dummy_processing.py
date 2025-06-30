@@ -9,7 +9,6 @@ import unicodedata
 class DummyProcessing(BasePostProcessor):
     
     def __init__(self, user_profile_service_url: str = "http://localhost:8010", timeout: float = 2.0):
-        # self.decision_agent = LLMDecisionAgent()
         self.user_profile_service_url = user_profile_service_url
         self.timeout = timeout
     
@@ -20,14 +19,25 @@ class DummyProcessing(BasePostProcessor):
         llm_answer.content = content
         
         if llm_answer.payload is None:
-            # llm_answer.payload = {}
             current_state = "unknown"
             if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
                 current_state = agent_state.state_machine.get_current_state()
             
             llm_answer.payload = {"state": current_state}
-        else:
-            llm_answer.payload = "Test"
+            
+            # Check if fake news should be shown
+            if (current_state == "stimulus_present" and 
+                hasattr(agent_state, 'state_machine') and 
+                agent_state.state_machine and
+                hasattr(agent_state.state_machine, 'fake_news_stimulus_url') and
+                agent_state.state_machine.fake_news_stimulus_url):
+                
+                fake_news_url = agent_state.state_machine.fake_news_stimulus_url
+                llm_answer.payload["fake_news_url"] = fake_news_url
+                
+                # Optional: Füge URL zur Response hinzu
+                llm_answer.content += f"\n\nSchau dir das mal an: {fake_news_url}"
+                # print(f"🎬 Added fake news URL to response: {fake_news_url}")
         
         # if hasattr(agent_state, 'chat_history') and agent_state.chat_history:
         #     full_dialog = self.decision_agent.generate_dialog(agent_state.chat_history, "")
@@ -91,7 +101,7 @@ class DummyProcessing(BasePostProcessor):
             
             conversation_summary = self.create_conversation_summary(agent_state, llm_answer)
 
-            print(conversation_summary)
+            # print(conversation_summary)
             
             conversation_data = {
                 "user_id": str(agent_state.user_id),
@@ -109,10 +119,10 @@ class DummyProcessing(BasePostProcessor):
                 
                 response = await client.post(url, json=conversation_data)
                 
-                print(f"HTTP {response.status_code} from user profile service")
+                # print(f"HTTP {response.status_code} from user profile service")
                 
                 if response.status_code == 200:
-                    print(f"Conversation sent successfully for user {agent_state.user_id}")
+                    # print(f"Conversation sent successfully for user {agent_state.user_id}")
                     try:
                         response_json = response.json()
                         # print(f"Service response: {response_json}")
