@@ -36,10 +36,10 @@ class GuidingInstructions(BaseGuidingInstructions):
         if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
             current_state = agent_state.state_machine.get_current_state()
         
-        print(f"✅ Added guiding instruction: {guiding_instruction_name}")
-        print(f"🎰 Current State: {current_state}")
-        print(f"📝 Behavioral Guidance: {behavioral_instruction[:100]}...")
-        print(f"📋 State Content: {state_instruction[:100] if state_instruction else 'None'}...")
+        # print(f"✅ Added guiding instruction: {guiding_instruction_name}")
+        # print(f"🎰 Current State: {current_state}")
+        # print(f"📝 Behavioral Guidance: {behavioral_instruction[:100]}...")
+        # print(f"📋 State Content: {state_instruction[:100] if state_instruction else 'None'}...")
         
         return agent_state
 
@@ -126,6 +126,7 @@ class GuidingInstructions(BaseGuidingInstructions):
                     return state_instruction_text
         
         return general_instruction
+        
 # class GuidingInstructions(BaseGuidingInstructions):
     
 #     def __init__(self):

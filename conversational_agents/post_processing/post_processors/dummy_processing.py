@@ -2,14 +2,14 @@ import asyncio
 import httpx
 import datetime as dt
 from conversational_agents.post_processing.post_processors.base_post_processors import BasePostProcessor
-from conversational_agents.agent_logic.general_logic.llm_decision_agent import LLMDecisionAgent
+# from conversational_agents.agent_logic.general_logic.llm_decision_agent import LLMDecisionAgent
 import re
 import unicodedata
 
 class DummyProcessing(BasePostProcessor):
     
     def __init__(self, user_profile_service_url: str = "http://localhost:8010", timeout: float = 2.0):
-        self.decision_agent = LLMDecisionAgent()
+        # self.decision_agent = LLMDecisionAgent()
         self.user_profile_service_url = user_profile_service_url
         self.timeout = timeout
     
@@ -20,14 +20,25 @@ class DummyProcessing(BasePostProcessor):
         llm_answer.content = content
         
         if llm_answer.payload is None:
-            llm_answer.payload = {}
-        
-        if hasattr(agent_state, 'chat_history') and agent_state.chat_history:
-            full_dialog = self.decision_agent.generate_dialog(agent_state.chat_history, "")
-            chat_history = full_dialog.rstrip().rstrip("Mensch:").strip()
-            llm_answer.payload["chat_history"] = chat_history
+            # llm_answer.payload = {}
+            current_state = "unknown"
+            if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
+                current_state = agent_state.state_machine.get_current_state()
+            
+            llm_answer.payload = {"state": current_state}
         else:
-            llm_answer.payload["chat_history"] = ""
+            llm_answer.payload = "Test"
+        
+        # if hasattr(agent_state, 'chat_history') and agent_state.chat_history:
+        #     full_dialog = self.decision_agent.generate_dialog(agent_state.chat_history, "")
+        #     print("-------------------")
+        #     print(full_dialog)
+        #     print("-------------------")
+
+        #     chat_history = full_dialog.rstrip().rstrip("Mensch:").strip()
+        #     llm_answer.payload["chat_history"] = chat_history
+        # else:
+        #     llm_answer.payload["chat_history"] = ""
         
         asyncio.create_task(self.send_conversation_async(agent_state, llm_answer))
         
@@ -79,6 +90,8 @@ class DummyProcessing(BasePostProcessor):
             print(f"📡 Sending conversation for user {agent_state.user_id}")
             
             conversation_summary = self.create_conversation_summary(agent_state, llm_answer)
+
+            print(conversation_summary)
             
             conversation_data = {
                 "user_id": str(agent_state.user_id),

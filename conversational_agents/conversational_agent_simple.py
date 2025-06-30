@@ -111,7 +111,7 @@ class ConversationalAgentSimple(ConversationalAgent):
                 content = example.get('content', '')
                 formatted_examples.append((role, content))
             
-            print(f"🎭 LOADED {len(formatted_examples)} EXAMPLES for state: {current_state}")
+            # print(f"🎭 LOADED {len(formatted_examples)} EXAMPLES for state: {current_state}")
             return formatted_examples
         except Exception as e:
             print(f"❌ ERROR loading examples for {current_state}: {e}")
@@ -169,7 +169,7 @@ class ConversationalAgentSimple(ConversationalAgent):
             # Add few-shot examples to REINFORCE the correct behavior
             if examples:
                 messages.extend(examples)
-                print(f"🎭 ADDED {len(examples)} REINFORCEMENT EXAMPLES")
+                # print(f"🎭 ADDED {len(examples)} REINFORCEMENT EXAMPLES")
             
             # Add chat history and current input
             messages.extend([
@@ -278,22 +278,22 @@ class ConversationalAgentSimple(ConversationalAgent):
         
         return " || ".join(output_parts) if output_parts else ""
 
-    def analyze_response_compliance(self, current_state, response_text):
-        """Analyze if the response follows state instructions"""
-        state_keywords = {
-            'engagement_hook': ['video', 'sieht', 'ähnlich', 'komisch', 'weird'],
-            'stimulus_present': ['tanzen', 'schule', 'ernst', 'untypisch', 'peinlich', 'überraschend'],
-            'reaction_wait': ['gefühlt', 'weird', 'reaktion'],
-            'explore_path': ['glaubwürdig', 'dagegen', 'sprechen'],
-            'comfort_user': ['entspann', 'video gibt es nicht', 'demonstration'],
-            'confirm_skepticism': ['gut beobachtet', 'skeptisch', 'wichtig']
-        }
+    # def analyze_response_compliance(self, current_state, response_text):
+    #     """Analyze if the response follows state instructions"""
+    #     state_keywords = {
+    #         'engagement_hook': ['video', 'sieht', 'ähnlich', 'komisch', 'weird'],
+    #         'stimulus_present': ['tanzen', 'schule', 'ernst', 'untypisch', 'peinlich', 'überraschend'],
+    #         'reaction_wait': ['gefühlt', 'weird', 'reaktion'],
+    #         'explore_path': ['glaubwürdig', 'dagegen', 'sprechen'],
+    #         'comfort_user': ['entspann', 'video gibt es nicht', 'demonstration'],
+    #         'confirm_skepticism': ['gut beobachtet', 'skeptisch', 'wichtig']
+    #     }
         
-        keywords = state_keywords.get(current_state, [])
-        matches = sum(1 for keyword in keywords if keyword.lower() in response_text.lower())
-        compliance_score = matches / len(keywords) if keywords else 0
+    #     keywords = state_keywords.get(current_state, [])
+    #     matches = sum(1 for keyword in keywords if keyword.lower() in response_text.lower())
+    #     compliance_score = matches / len(keywords) if keywords else 0
         
-        return f"{compliance_score:.1%} (matched {matches}/{len(keywords)} keywords)"
+    #     return f"{compliance_score:.1%} (matched {matches}/{len(keywords)} keywords)"
     
     async def proactive_instruct(self):
         proactive_prompt = self.state.prompts['proactive_prompt']
@@ -340,7 +340,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         if self.generate_answer(next_action):
             # Get REAL current state from state machine (not behavioral instruction)
             current_state = self.get_current_state_from_state_machine()
-            print(f"🎯 ACTUAL STATE MACHINE STATE: {current_state}")
+            # print(f"🎯 ACTUAL STATE MACHINE STATE: {current_state}")
             
             # Build dynamic prompt with state-specific content and examples
             dynamic_prompt = self.build_dynamic_prompt(current_state)
@@ -360,12 +360,12 @@ class ConversationalAgentSimple(ConversationalAgent):
             # Debug output showing state machine context
             if hasattr(self.state, 'state_machine') and self.state.state_machine:
                 available_transitions = self.state.state_machine.get_available_transitions()
-                print(f"🎰 STATE MACHINE STATE: {current_state}")
+                # print(f"🎰 STATE MACHINE STATE: {current_state}")
                 print(f"🔄 AVAILABLE TRANSITIONS: {[t['trigger'] for t in available_transitions]}")
             
-            print(f"🎯 BEHAVIORAL INSTRUCTION: {getattr(self.state, 'current_guiding_instruction_name', 'None')}")
-            print(f"💭 COMBINED GUIDANCE: {getattr(self.state, 'current_guiding_instruction', 'None')[:100] if hasattr(self.state, 'current_guiding_instruction') else 'None'}...")
-            print(f"DEBUG: Using state-specific prompt and examples for state machine state: {current_state}")
+            # print(f"🎯 BEHAVIORAL INSTRUCTION: {getattr(self.state, 'current_guiding_instruction_name', 'None')}")
+            # print(f"💭 COMBINED GUIDANCE: {getattr(self.state, 'current_guiding_instruction', 'None')[:100] if hasattr(self.state, 'current_guiding_instruction') else 'None'}...")
+            # print(f"DEBUG: Using state-specific prompt and examples for state machine state: {current_state}")
             
             # Debug: Show what exact instructions the LLM gets
             state_prompts = self.state.prompts.get('state_system_prompts', {})
@@ -381,8 +381,8 @@ class ConversationalAgentSimple(ConversationalAgent):
             }, config=self.model_config):
                 llm_answer_text += chunk.content
                 
-            print(f"🤖 LLM RESPONSE: {llm_answer_text[:100]}...")
-            print(f"🔍 RESPONSE ANALYSIS: Does it follow state instructions? {self.analyze_response_compliance(current_state, llm_answer_text)}")
+            # print(f"🤖 LLM RESPONSE: {llm_answer_text[:100]}...")
+            # print(f"🔍 RESPONSE ANALYSIS: Does it follow state instructions? {self.analyze_response_compliance(current_state, llm_answer_text)}")
             llm_answer = LLMAnswer(content=llm_answer_text)       
 
         if self.postprocessing != None:

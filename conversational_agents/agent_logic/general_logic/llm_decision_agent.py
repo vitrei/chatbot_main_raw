@@ -66,18 +66,19 @@ VERFÜGBARE GUIDING_INSTRUCTIONS (für BOT-VERHALTEN):
 MÖGLICHE TRANSITIONS (für THEMEN-WECHSEL):
 {transition_options}
 
-Du gibst deine Antwort als JSON zurück:
+Du gibst deine Antwort als valides JSON zurück:
 
 {{
     "next_action": "GUIDING_INSTRUCTIONS",
     "guiding_instruction": "<behavioral_instruction_key>",
     "state_transition": {{
-        "needed": true/false,
+        "needed": True/False,
         "trigger": "<trigger_name>",
         "reason": "<warum dieser transition>"
     }},
     "reason": "<kurze Begründung für Instruction-Wahl>"
 }}
+
 """
 
         prompt = ChatPromptTemplate.from_messages([
@@ -93,14 +94,17 @@ Du gibst deine Antwort als JSON zurück:
         if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
             print("❌ No state machine found in agent_state")
             return {
-                'current_state': 'init_greeting',  # Use default initial state
+                'current_state': 'init_greeting',  # default initial state
                 'available_transitions': [],
                 'state_specific_instructions': 'No state machine available - using default state'
             }
         
         sm = agent_state.state_machine
         context = sm.get_state_context_for_decision_agent()
-        print(f"🎰 State Machine Context: {context}")
+        transition_destinations = [t['dest'] for t in context['available_transitions']]
+        print("Available states to transition to:")
+        print(transition_destinations)
+        # print(f"🎰 State Machine Context: {context}")
         
         # Get state-specific instructions from prompts
         state_prompts = agent_state.prompts.get('state_system_prompts', {})
@@ -206,8 +210,8 @@ Du gibst deine Antwort als JSON zurück:
         
         # Get state machine context
         sm_context = self.get_state_machine_context(agent_state)
-        print(f"🎰 CURRENT STATE: {sm_context['current_state']}")
-        print(f"🔄 AVAILABLE TRANSITIONS: {len(sm_context['available_transitions'])}")
+        # print(f"CURRENT STATE: {sm_context['current_state']}")
+        # print(f"🔄 AVAILABLE TRANSITIONS: {len(sm_context['available_transitions'])}")
         
         user_profile_info = self.get_user_profile_info(agent_state)
         
@@ -216,9 +220,12 @@ Du gibst deine Antwort als JSON zurück:
         guiding_instruction_prompts = prompts['guiding_instructions']
         
         # Format guiding instructions for prompt
-        guidings_instructions_str = ""
-        for key, value in guiding_instruction_prompts.items():
-            guidings_instructions_str += f"{key}: {value}\n"
+        # guidings_instructions_str = ""
+        # for key, value in guiding_instruction_prompts.items():
+        #     guidings_instructions_str += f"{key}: {value}\n"
+        guidings_instructions_str = "\n".join(
+            f"{key}: {value}" for key, value in guiding_instruction_prompts.items()
+        )
 
         chat_history = self.generate_dialog(agent_state.chat_history, agent_state.instruction)
         last_user_message = self.get_last_user_message(agent_state.chat_history)
@@ -238,23 +245,26 @@ Du gibst deine Antwort als JSON zurück:
         }
         
         response = self.chain.invoke(prompt_data)
-        response_json = response.content
+
+        response_json = self.extract_json_from_string(response.content)
+
+        # print(response_json)
 
         # Retry logic for invalid JSON
-        retry_count = 0
-        max_retries = 3
-        while (response_json == None or not self.is_json_parsable(response_json)) and retry_count < max_retries:
-            print(f"Not a valid JSON. Retrying... ({retry_count + 1}/{max_retries})")
-            response = self.chain.invoke(prompt_data)
-            response_json = self.extract_json_from_string(response.content)
-            retry_count += 1
+        # retry_count = 0
+        # max_retries = 3
+        # while (response_json == None or not self.is_json_parsable(response_json)) and retry_count < max_retries:
+        #     print(f"Not a valid JSON. Retrying... ({retry_count + 1}/{max_retries})")
+        #     response = self.chain.invoke(prompt_data)
+        #     response_json = self.extract_json_from_string(response.content)
+        #     retry_count += 1
         
-        if not self.is_json_parsable(response_json):
-            print("❌ Failed to get valid JSON after retries. Using fallback decision.")
-            return self.create_fallback_decision(sm_context)
+        # if not self.is_json_parsable(response_json):
+        #     print("❌ Failed to get valid JSON after retries. Using fallback decision.")
+        #     return self.create_fallback_decision(sm_context)
         
         llm_decision = json.loads(response_json)
-        print(f"🤖 LLM DECISION RAW: {llm_decision}")
+        # print(f"🤖 LLM DECISION RAW: {llm_decision}")
 
         # Handle state transition if needed
         if llm_decision.get('state_transition', {}).get('needed', False):
@@ -265,7 +275,7 @@ Du gibst deine Antwort als JSON zurück:
             if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
                 success = agent_state.state_machine.execute_transition(trigger, reason)
                 if success:
-                    print(f"✅ STATE TRANSITION EXECUTED: {trigger}")
+                    pass # print(f"✅ STATE TRANSITION EXECUTED: {trigger}")
                 else:
                     print(f"❌ STATE TRANSITION FAILED: {trigger}")
 
@@ -283,6 +293,7 @@ Du gibst deine Antwort als JSON zurück:
         print(f"✅ FINAL DECISION: {next_action_decision}")
         return next_action_decision
 
+    
     def create_fallback_decision(self, sm_context):
         """Create a fallback decision when LLM fails"""
         current_state = sm_context['current_state']
@@ -303,6 +314,9 @@ Du gibst deine Antwort als JSON zurück:
             return False
         
     def extract_json_from_string(self, s):
+        s = re.sub(r'```json\s*', '', s)
+        s = re.sub(r'```\s*$', '', s)
+        
         json_match = re.search(r'\{.*\}', s, re.DOTALL)
         if json_match:
             json_str = json_match.group(0)
