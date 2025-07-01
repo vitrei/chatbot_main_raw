@@ -36,4 +36,6 @@ class AgentState:
     state_machine: 'ConversationStateMachine' = None  # Add state machine reference
     current_guiding_instruction: str = None  # Current guiding instruction content
     current_guiding_instruction_name: str = None  # Current guiding instruction name
+    current_state_prompts: list = None  # State-specific system prompts from state machine
+    current_state_examples: list = None  # State-specific examples from state machine
 

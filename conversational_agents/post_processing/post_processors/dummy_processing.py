@@ -20,10 +20,35 @@ class DummyProcessing(BasePostProcessor):
         
         if llm_answer.payload is None:
             current_state = "unknown"
+            current_stage = "unknown"
+            
             if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
                 current_state = agent_state.state_machine.get_current_state()
+                current_stage = getattr(agent_state.state_machine, 'current_stage', 'unknown')
             
-            llm_answer.payload = {"state": current_state}
+            llm_answer.payload = {"state": current_state, "stage": current_stage}
+            
+            # Add stage progression tracking
+            if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
+                state_machine = agent_state.state_machine
+                
+                # Get stage context for progression tracking
+                stage_context = state_machine.get_state_context_for_decision_agent(agent_state.conversation_turn_counter)
+                stage_progress = stage_context.get('stage_progress', {})
+                
+                # Add comprehensive progression data to payload
+                llm_answer.payload.update({
+                    "stage_progression": {
+                        "current_stage": current_stage,
+                        "current_state": current_state,
+                        "turn_counter": agent_state.conversation_turn_counter,
+                        "progress_percentage": stage_progress.get('progress_percentage', 0),
+                        "target_turns": stage_progress.get('target_turns', 15),
+                        "milestones": stage_progress.get('milestone_status', []),
+                        "stage_appropriate_transitions": len(stage_context.get('stage_appropriate_transitions', [])),
+                        "total_transitions": len(stage_context.get('available_transitions', []))
+                    }
+                })
             
             # Check if fake news should be shown
             if (current_state == "stimulus_present" and 
@@ -103,6 +128,9 @@ class DummyProcessing(BasePostProcessor):
 
             # print(conversation_summary)
             
+            # Extract stage progression data from payload
+            stage_data = llm_answer.payload.get("stage_progression", {}) if llm_answer.payload else {}
+            
             conversation_data = {
                 "user_id": str(agent_state.user_id),
                 "timestamp": dt.datetime.now().isoformat(),
@@ -110,7 +138,18 @@ class DummyProcessing(BasePostProcessor):
                 "bot_response": llm_answer.content,
                 "full_conversation": conversation_summary,
                 "turn_count": getattr(agent_state, 'conversation_turn_counter', 0),
-                "user_profile": getattr(agent_state, 'user_profile', None)
+                "user_profile": getattr(agent_state, 'user_profile', None),
+                # Add stage progression tracking for user profile analysis
+                "stage_progression": {
+                    "current_stage": stage_data.get("current_stage", "unknown"),
+                    "current_state": stage_data.get("current_state", "unknown"),
+                    "progress_percentage": stage_data.get("progress_percentage", 0),
+                    "turn_counter": stage_data.get("turn_counter", 0),
+                    "target_turns": stage_data.get("target_turns", 15),
+                    "milestones_status": stage_data.get("milestones", []),
+                    "progression_health": self._assess_progression_health(stage_data),
+                    "stage_transitions_available": stage_data.get("stage_appropriate_transitions", 0)
+                }
             }
             
             
@@ -144,6 +183,46 @@ class DummyProcessing(BasePostProcessor):
             print(f"Unexpected error sending conversation: {type(e).__name__}: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def _assess_progression_health(self, stage_data) -> dict:
+        """Assess if stage progression is healthy or problematic"""
+        turn_counter = stage_data.get("turn_counter", 0)
+        progress_percentage = stage_data.get("progress_percentage", 0)
+        target_turns = stage_data.get("target_turns", 15)
+        current_state = stage_data.get("current_state", "unknown")
+        current_stage = stage_data.get("current_stage", "unknown")
+        
+        health_assessment = {
+            "overall_health": "good",
+            "issues": [],
+            "recommendations": []
+        }
+        
+        # Check for progression issues
+        if turn_counter > 5 and current_state == "init_greeting":
+            health_assessment["overall_health"] = "concerning"
+            health_assessment["issues"].append("stuck_in_greeting")
+            health_assessment["recommendations"].append("force_progression_to_engagement")
+        
+        if turn_counter > 10 and current_state in ["init_greeting", "engagement_hook"]:
+            health_assessment["overall_health"] = "poor"
+            health_assessment["issues"].append("slow_progression")
+            health_assessment["recommendations"].append("stimulus_presentation_needed")
+        
+        if progress_percentage > 80 and current_state in ["init_greeting", "engagement_hook"]:
+            health_assessment["overall_health"] = "critical"
+            health_assessment["issues"].append("critical_stagnation")
+            health_assessment["recommendations"].append("emergency_progression")
+        
+        # Check for good progression indicators
+        if progress_percentage < 50 and current_state in ["stimulus_present", "reaction_wait"]:
+            health_assessment["recommendations"].append("good_pacing")
+        
+        if turn_counter <= target_turns and current_state in ["explore_path", "confirm_skepticism", "meta_reflection"]:
+            health_assessment["overall_health"] = "excellent"
+            health_assessment["recommendations"].append("optimal_progression")
+        
+        return health_assessment
 
     
 

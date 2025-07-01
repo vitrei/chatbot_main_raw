@@ -99,10 +99,17 @@ class ConversationalAgentSimple(ConversationalAgent):
         return f"{combined_prompt}\n\n{{user_profile_context}}"
 
     def get_state_examples(self, current_state):
-        """Get few-shot examples for current state from JSON"""
+        """Get few-shot examples for current state (prioritize injected from state machine)"""
         try:
-            state_examples = self.state.prompts.get('state_examples', {})
-            examples = state_examples.get(current_state, [])
+            # Use injected state machine examples if available
+            if hasattr(self.state, 'current_state_examples') and self.state.current_state_examples:
+                examples = self.state.current_state_examples
+                print(f"🔄 Using injected state machine examples for {current_state}")
+            else:
+                # Fallback to examples from prompts_fake_news.json (legacy)
+                state_examples = self.state.prompts.get('state_examples', {})
+                examples = state_examples.get(current_state, [])
+                print(f"⚠️ Using legacy examples for {current_state}")
             
             # Convert JSON format to ChatPromptTemplate format
             formatted_examples = []
@@ -120,9 +127,16 @@ class ConversationalAgentSimple(ConversationalAgent):
     def build_dynamic_prompt(self, current_state):
         """Build dynamic prompt with STRONG state-specific enforcement"""
         try:
-            # Get state-specific instructions and examples
-            state_prompts = self.state.prompts.get('state_system_prompts', {})
-            state_instructions = state_prompts.get(current_state, [])
+            # Get state-specific instructions and examples (prioritize injected from state machine)
+            if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
+                # Use injected state machine prompts
+                state_instructions = self.state.current_state_prompts
+                print(f"🔄 Using injected state machine prompts for {current_state}")
+            else:
+                # Fallback to prompts from prompts_fake_news.json (legacy)
+                state_prompts = self.state.prompts.get('state_system_prompts', {})
+                state_instructions = state_prompts.get(current_state, [])
+                print(f"⚠️ Using legacy prompts for {current_state}")
             examples = self.get_state_examples(current_state)
             
             # Get behavioral guidance
@@ -326,8 +340,29 @@ class ConversationalAgentSimple(ConversationalAgent):
         print(f"DEBUG: Calling decision agent with state id: {id(self.state)}")
         next_action = self.decision_agent.next_action(agent_state=self.state)
 
-        if next_action.type == NextActionDecisionType.PROMPT_ADAPTION: 
-            pass
+        if next_action.type == NextActionDecisionType.PROMPT_ADAPTION:
+            # Inject state machine context into agent state
+            if next_action.payload:
+                print(f"🔄 PROMPT_ADAPTION: Injecting state machine context for {next_action.payload.get('current_state')}")
+                
+                # Store state machine prompts and examples in agent state
+                if 'state_system_prompts' in next_action.payload:
+                    self.state.current_state_prompts = next_action.payload['state_system_prompts']
+                if 'state_examples' in next_action.payload:
+                    self.state.current_state_examples = next_action.payload['state_examples']
+                
+                # Apply the guiding instruction after injecting state context
+                guiding_instruction_name = next_action.payload.get('guiding_instruction', 'general_guidance')
+                
+                # Create a secondary NextActionDecision for guiding instructions
+                guiding_decision = NextActionDecision(
+                    type=NextActionDecisionType.GUIDING_INSTRUCTIONS,
+                    action=guiding_instruction_name,
+                    payload=next_action.payload
+                )
+                
+                self.state = self.guiding_instructions.add_guiding_instructions(guiding_decision, self.state)
+                self.state.current_guiding_instruction_name = guiding_instruction_name
 
         elif next_action.type == NextActionDecisionType.GUIDING_INSTRUCTIONS: 
             self.state = self.guiding_instructions.add_guiding_instructions(next_action, self.state)
@@ -367,10 +402,15 @@ class ConversationalAgentSimple(ConversationalAgent):
             # print(f"💭 COMBINED GUIDANCE: {getattr(self.state, 'current_guiding_instruction', 'None')[:100] if hasattr(self.state, 'current_guiding_instruction') else 'None'}...")
             # print(f"DEBUG: Using state-specific prompt and examples for state machine state: {current_state}")
             
-            # Debug: Show what exact instructions the LLM gets
-            state_prompts = self.state.prompts.get('state_system_prompts', {})
-            state_instructions = state_prompts.get(current_state, [])
-            print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM:")
+            # Debug: Show what exact instructions the LLM gets (use injected prompts)
+            if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
+                state_instructions = self.state.current_state_prompts
+                print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM (from state machine):")
+            else:
+                state_prompts = self.state.prompts.get('state_system_prompts', {})
+                state_instructions = state_prompts.get(current_state, [])
+                print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM (legacy):")
+            
             for i, instruction in enumerate(state_instructions, 1):
                 print(f"   {i}. {instruction}")
             
