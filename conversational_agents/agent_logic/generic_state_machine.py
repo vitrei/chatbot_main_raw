@@ -47,40 +47,64 @@ class SequenceRule(GuardRailRule):
         return f"Sequence rule violation: must follow {' → '.join(self.sequence)}"
 
 class TurnLimitRule(GuardRailRule):
-    """Enforce turn-based limits with absolute closure at max turns"""
+    """Enforce turn-based limits with optional stage-relative counting"""
     
     def __init__(self, min_turns: Optional[int] = None, max_turns: Optional[int] = None, 
-                 closure_states: Optional[List[str]] = None, force_closure: bool = False):
+                 closure_states: Optional[List[str]] = None, force_closure: bool = False,
+                 stage_relative: bool = False, max_turns_in_stage: Optional[int] = None):
         self.min_turns = min_turns
         self.max_turns = max_turns
         self.closure_states = closure_states or []
         self.force_closure = force_closure
+        self.stage_relative = stage_relative
+        self.max_turns_in_stage = max_turns_in_stage
     
     def check(self, current_state: str, dest_state: str, turn_counter: int, context: Dict[str, Any]) -> bool:
-        print(f"  🔒 TurnLimitRule check: turn {turn_counter}, {current_state} → {dest_state}")
+        # Get stage context for relative counting
+        stage_start_turn = context.get('stage_start_turn', 0)
+        turns_in_stage = turn_counter - stage_start_turn
+        current_stage = context.get('current_stage', 'onboarding')
         
-        # Early closure prevention
-        if self.min_turns and turn_counter < self.min_turns and dest_state in self.closure_states:
-            print(f"    ❌ Too early for closure (turn {turn_counter} < {self.min_turns})")
-            return False
-        
-        # ABSOLUTE CLOSURE ENFORCEMENT AT TURN 12+
-        if turn_counter >= 12:
-            if dest_state in self.closure_states:
-                print(f"    ✅ Closure allowed at turn {turn_counter}")
-                return True
-            else:
-                print(f"    ❌ ABSOLUTE BLOCK: Turn {turn_counter} >= 12, only closure allowed")
+        if self.stage_relative and self.max_turns_in_stage:
+            print(f"  🔒 TurnLimitRule (stage-relative): turn {turn_counter} (stage: {turns_in_stage}/{self.max_turns_in_stage}), {current_state} → {dest_state}")
+            
+            # Stage-relative logic: only check turns within current stage
+            if turns_in_stage > self.max_turns_in_stage and dest_state in self.closure_states:
+                print(f"    ❌ Stage turn limit exceeded: {turns_in_stage} > {self.max_turns_in_stage}")
                 return False
-        
-        # Normal force closure logic (turn 11)
-        if self.max_turns and turn_counter >= self.max_turns and self.force_closure:
-            if dest_state not in self.closure_states:
-                print(f"    ❌ Force closure enabled: only closure states allowed at turn {turn_counter}")
+            
+            print(f"    ✅ Stage-relative turn limit check passed")
+            return True
+        else:
+            # Original absolute turn logic (only for onboarding stage)
+            print(f"  🔒 TurnLimitRule (absolute): turn {turn_counter}, {current_state} → {dest_state}")
+            
+            # Early closure prevention
+            if self.min_turns and turn_counter < self.min_turns and dest_state in self.closure_states:
+                print(f"    ❌ Too early for closure (turn {turn_counter} < {self.min_turns})")
                 return False
-        
-        print(f"    ✅ Turn limit check passed")
-        return True
+            
+            # ABSOLUTE CLOSURE ENFORCEMENT AT TURN 12+ (ONLY for onboarding stage)
+            if turn_counter >= 12 and self.closure_states and current_stage == 'onboarding':
+                if dest_state in self.closure_states:
+                    print(f"    ✅ Closure allowed at turn {turn_counter}")
+                    return True
+                # EXCEPTION: Allow inter-stage transitions even at turn 12+
+                elif dest_state in ['stage_selection', 'content_intro_pt', 'content_intro_ps']:
+                    print(f"    ✅ Inter-stage transition allowed at turn {turn_counter}: {dest_state}")
+                    return True
+                else:
+                    print(f"    ❌ ABSOLUTE BLOCK: Turn {turn_counter} >= 12, only closure/inter-stage allowed (onboarding stage)")
+                    return False
+            
+            # Normal force closure logic
+            if self.max_turns and turn_counter >= self.max_turns and self.force_closure:
+                if dest_state not in self.closure_states:
+                    print(f"    ❌ Force closure enabled: only closure states allowed at turn {turn_counter}")
+                    return False
+            
+            print(f"    ✅ Turn limit check passed")
+            return True
     
     def get_reason(self) -> str:
         return f"Turn limit rule: min {self.min_turns}, max {self.max_turns} turns"
@@ -180,13 +204,17 @@ class GenericStateMachine:
         self.config = config
         self.guard_rails: List[GuardRailRule] = []
         self.turn_counter = 0
+        self.stage_start_turn = 0  # Track when current stage started
         
         # Extract basic configuration
-        self.states = config.get('states', [])
-        self.initial_state = config.get('initial_state', 'init')
-        self.transitions_config = config.get('transitions', [])
         self.stages = config.get('stages', {})
         self.current_stage = config.get('current_stage', 'default')
+        self.initial_state = config.get('initial_state', 'init')
+        self.transitions_config = config.get('transitions', [])
+        
+        # Start with current stage states only
+        current_stage_config = self.stages.get(self.current_stage, {})
+        self.states = current_stage_config.get('states', [])
         
         # Setup guard rails from configuration
         self._setup_guard_rails()
@@ -200,6 +228,8 @@ class GenericStateMachine:
         )
         
         print(f"🎰 GENERIC STATE MACHINE INITIALIZED: {self.initial_state}")
+        print(f"🎭 CURRENT STAGE: {self.current_stage}")
+        print(f"📋 STAGE STATES: {self.states}")
     
     def _setup_guard_rails(self):
         """Setup guard rails from configuration"""
@@ -217,12 +247,17 @@ class GenericStateMachine:
             ))
         
         # Turn limit rules
-        if 'min_turns' in stage_config or 'max_turns' in stage_config:
+        if 'min_turns' in stage_config or 'max_turns' in stage_config or stage_config.get('relative_turns'):
+            stage_relative = stage_config.get('relative_turns', False)
+            max_turns_in_stage = stage_config.get('max_turns_in_stage')
+            
             self.guard_rails.append(TurnLimitRule(
                 min_turns=stage_config.get('min_turns'),
                 max_turns=stage_config.get('max_turns'),
                 closure_states=stage_config.get('closure_states', ['onboarding_closure']),
-                force_closure=stage_config.get('guard_rails', {}).get('force_closure_after_max_turns', False)
+                force_closure=stage_config.get('guard_rails', {}).get('force_closure_after_max_turns', False),
+                stage_relative=stage_relative,
+                max_turns_in_stage=max_turns_in_stage
             ))
         
         # Progression rules
@@ -262,6 +297,10 @@ class GenericStateMachine:
                             context: Optional[Dict[str, Any]] = None) -> tuple[bool, str]:
         """Check if transition is allowed by guard rails"""
         context = context or {}
+        
+        # Add stage context for guard rails
+        context['stage_start_turn'] = getattr(self, 'stage_start_turn', 0)
+        context['current_stage'] = self.current_stage
         
         print(f"🔍 GUARD RAIL CHECK: {self.state} → {dest_state} (turn {turn_counter})")
         
@@ -319,7 +358,15 @@ class GenericStateMachine:
         try:
             print(f"🚀 EXECUTING TRANSITION: {trigger_name} from {self.state}")
             
-            # Get current available transitions with detailed info
+            # SPECIAL HANDLING for inter-stage transitions
+            if trigger_name == "proceed_to_stage_selection":
+                return self._execute_inter_stage_transition("stage_selection", turn_counter, reason)
+            elif trigger_name == "choose_politics_tech":
+                return self._execute_inter_stage_transition("content_politics_tech", turn_counter, reason, "content_intro_pt")
+            elif trigger_name == "choose_psychology_society":
+                return self._execute_inter_stage_transition("content_psychology_society", turn_counter, reason, "content_intro_ps")
+            
+            # Normal intra-stage transitions
             available_transitions = self.get_available_transitions(turn_counter)
             
             print(f"📋 Available transitions for {self.state}:")
@@ -343,11 +390,35 @@ class GenericStateMachine:
             
             # Execute the trigger
             print(f"⚙️ Calling trigger method: {trigger_name}")
+            
+            # Check if method exists and is callable
+            if not hasattr(self, trigger_name):
+                print(f"❌ Trigger method {trigger_name} not found on object")
+                print(f"   Available methods: {[m for m in dir(self) if not m.startswith('_')]}")
+                return False
+            
             trigger_method = getattr(self, trigger_name)
-            trigger_method()
+            if not callable(trigger_method):
+                print(f"❌ {trigger_name} is not callable")
+                return False
+                
+            print(f"✅ Trigger method {trigger_name} found and callable")
+            
+            # Try to execute the trigger
+            try:
+                trigger_method()
+            except Exception as trigger_exception:
+                print(f"❌ Trigger execution failed: {trigger_exception}")
+                # Let's try to manually update the state as a fallback
+                dest_state = matching_transition['dest']
+                print(f"🔄 FALLBACK: Manually updating state from {self.state} to {dest_state}")
+                self.state = dest_state
+                print(f"✅ FALLBACK STATE UPDATE: {old_state} → {self.state}")
+                return True
             
             print(f"✅ STATE MACHINE TRANSITION: {old_state} --{trigger_name}--> {self.state}")
             print(f"📝 TRANSITION REASON: {reason}")
+            
             return True
             
         except AttributeError as e:
@@ -356,6 +427,204 @@ class GenericStateMachine:
         except Exception as e:
             print(f"❌ STATE TRANSITION FAILED: {trigger_name} - {str(e)}")
             return False
+    
+    def _execute_inter_stage_transition(self, target_stage: str, turn_counter: int, reason: str, target_state: str = None) -> bool:
+        """Execute inter-stage transition manually"""
+        try:
+            old_state = self.state
+            old_stage = self.current_stage
+            
+            # Determine target state
+            if target_state is None:
+                # For proceed_to_stage_selection, the target state is stage_selection itself
+                target_state = "stage_selection"
+            
+            print(f"🎭 INTER-STAGE TRANSITION: {old_stage}:{old_state} → {target_stage}:{target_state}")
+            
+            # Switch stage and recreate state machine
+            success = self.switch_stage(target_stage, turn_counter)
+            if not success:
+                return False
+            
+            # Verify target state exists in new stage
+            if target_state not in self.states:
+                print(f"❌ Target state '{target_state}' not in new stage states: {self.states}")
+                target_state = self.states[0] if self.states else 'unknown'
+                print(f"🔄 Using fallback state: {target_state}")
+            
+            # The switch_stage method sets the state to the initial state of the new stage
+            # For inter-stage transitions, we often want a specific target state
+            print(f"🎯 Current state after stage switch: {self.state}")
+            print(f"🎯 Desired target state: {target_state}")
+            
+            if target_state != self.state:
+                print(f"🎯 Need to update state from {self.state} to {target_state}")
+                # Use the transitions library to properly set the state
+                if hasattr(self.machine, 'set_state'):
+                    self.machine.set_state(target_state)
+                    print(f"✅ Set state using machine.set_state: {self.state}")
+                else:
+                    # Fallback to direct assignment
+                    self.state = target_state
+                    print(f"✅ Set state using direct assignment: {self.state}")
+            else:
+                print(f"✅ State already correct: {self.state}")
+            
+            print(f"✅ INTER-STAGE TRANSITION COMPLETED: {old_stage}:{old_state} → {target_stage}:{target_state}")
+            print(f"📝 TRANSITION REASON: {reason}")
+            print(f"🔍 VERIFICATION: Current state is now {self.get_current_state()}")
+            print(f"🔍 VERIFICATION: Current stage is now {self.current_stage}")
+            print(f"🔍 VERIFICATION: Available states: {self.states}")
+            print(f"🔍 VERIFICATION: Stage start turn: {self.stage_start_turn}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ INTER-STAGE TRANSITION FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _check_inter_stage_transition(self):
+        """Check and execute inter-stage transitions"""
+        try:
+            inter_stage_config = self.config.get('inter_stage_transitions', {})
+            current_state = self.state
+            
+            if current_state in inter_stage_config:
+                stage_transition = inter_stage_config[current_state]
+                
+                if isinstance(stage_transition, str):
+                    # Direct stage transition (e.g., "onboarding_closure": "stage_selection")
+                    if current_state == "onboarding_closure":
+                        print(f"🔄 INTER-STAGE: Onboarding completed → proceeding to stage_selection")
+                        # Switch to stage_selection stage and execute transition
+                        # Note: We need the current turn counter here, but it's not passed to this method
+                        # This will be handled by the manual stage switch in the decision agent
+                        self.proceed_to_stage_selection()
+                        
+                elif isinstance(stage_transition, dict):
+                    # Choice-based transition (handled by decision agent)
+                    print(f"🔀 INTER-STAGE CHOICE: {current_state} allows multiple stage transitions")
+                    # This will be handled by the decision agent choosing the appropriate trigger
+                    
+        except Exception as e:
+            print(f"❌ Error in inter-stage transition check: {e}")
+    
+    def switch_stage(self, new_stage: str, current_turn: int = 0):
+        """Switch to a new stage and update state machine configuration"""
+        try:
+            if new_stage not in self.config.get('stages', {}):
+                print(f"❌ Stage '{new_stage}' not found in configuration")
+                return False
+            
+            old_stage = self.current_stage
+            old_state = self.state
+            
+            print(f"🎭 STAGE SWITCH REQUEST: {old_stage}:{old_state} → {new_stage}")
+            
+            self.current_stage = new_stage
+            
+            # Track when this stage started for relative turn counting
+            self.stage_start_turn = current_turn
+            
+            # Update states for new stage
+            new_stage_config = self.stages.get(new_stage, {})
+            self.states = new_stage_config.get('states', [])
+            
+            # Filter transitions for new stage
+            new_stage_transitions = [t for t in self.transitions_config 
+                                   if self._transition_belongs_to_stage(t, new_stage)]
+            
+            # Recreate the state machine with new stage configuration
+            initial_state = self.states[0] if self.states else self.initial_state
+            
+            print(f"🔧 RECREATING MACHINE: initial_state={initial_state}, states={self.states}")
+            print(f"🔧 TRANSITIONS FOR STAGE: {len(new_stage_transitions)} transitions")
+            for t in new_stage_transitions:
+                print(f"    {t['trigger']}: {t['source']} → {t['dest']}")
+            
+            self.machine = Machine(
+                model=self,
+                states=self.states,
+                initial=initial_state,
+                transitions=new_stage_transitions
+            )
+            
+            # Force the state to be set correctly - the Machine should initialize to initial_state
+            # but we need to ensure it's properly set
+            self.state = initial_state
+            print(f"🔧 MACHINE STATE AFTER CREATION: {getattr(self, 'state', 'NOT_SET')}")
+            
+            # Verify the machine knows about our current state
+            if hasattr(self.machine, 'model') and hasattr(self.machine.model, 'state'):
+                print(f"🔧 MACHINE MODEL STATE: {self.machine.model.state}")
+            
+            # Test if trigger methods are available
+            for t in new_stage_transitions:
+                trigger_name = t['trigger']
+                if hasattr(self, trigger_name):
+                    print(f"✅ Trigger method available: {trigger_name}")
+                else:
+                    print(f"❌ Trigger method missing: {trigger_name}")
+            
+            # Verify machine states
+            print(f"🔧 MACHINE STATES: {getattr(self.machine, 'states', 'NOT_FOUND')}")
+            if hasattr(self.machine, 'models'):
+                models = self.machine.models
+                if isinstance(models, dict):
+                    print(f"🔧 MACHINE MODELS (dict): {list(models.keys())}")
+                elif isinstance(models, list):
+                    print(f"🔧 MACHINE MODELS (list): {len(models)} models")
+                else:
+                    print(f"🔧 MACHINE MODELS (other): {type(models)} - {models}")
+            
+            # Force refresh of dynamic methods if possible
+            if hasattr(self.machine, '_add_model_to_state'):
+                for state in self.states:
+                    try:
+                        self.machine._add_model_to_state(self, state)
+                        print(f"✅ Added model to state: {state}")
+                    except Exception as e:
+                        print(f"❌ Failed to add model to state {state}: {e}")
+            
+            # Clear old guard rails and setup new ones
+            self.guard_rails.clear()
+            self._setup_guard_rails()
+            
+            print(f"🎭 STAGE SWITCH: {old_stage} → {new_stage}")
+            print(f"📋 Stage started at turn: {self.stage_start_turn}")
+            print(f"📋 New stage states: {self.states}")
+            print(f"🔄 New stage transitions: {len(new_stage_transitions)}")
+            print(f"🔒 New guard rails: {len(self.guard_rails)} rules loaded")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error switching stage: {e}")
+            return False
+    
+    def _transition_belongs_to_stage(self, transition: Dict[str, Any], stage: str) -> bool:
+        """Check if a transition belongs to a specific stage"""
+        stage_config = self.stages.get(stage, {})
+        stage_states = stage_config.get('states', [])
+        
+        source = transition.get('source')
+        dest = transition.get('dest')
+        trigger = transition.get('trigger')
+        
+        # Check if both source and dest are in stage states
+        belongs = False
+        if isinstance(source, str):
+            belongs = source in stage_states and dest in stage_states
+        elif isinstance(source, list):
+            belongs = any(s in stage_states for s in source) and dest in stage_states
+        
+        # Minimal debug logging for performance
+        if stage.startswith('content_') and not belongs:
+            print(f"🔍 FILTER: {trigger} for {stage}: ❌")
+        
+        return belongs
     
     def get_state_context_for_decision_agent(self, turn_counter: int = 0) -> Dict[str, Any]:
         """Provide state context for decision agent"""

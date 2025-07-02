@@ -62,8 +62,127 @@
                 "conversation_repair": {
                     "restart_engagement": "User bereit für Neustart: 'Ok, lass uns nochmal anfangen' (ZURÜCK ZUM GOLDEN PATH)",
                     "finish_onboarding": "User will aufhören: 'Ich hab keine Lust mehr', 'Das ist langweilig' (NOTAUSGANG)"
+                },
+                "onboarding_closure": {
+                    "proceed_to_stage_selection": "Onboarding erfolgreich abgeschlossen → User soll Content-Stage wählen"
                 }
             }
+        },
+        "stage_selection": {
+            "states": ["stage_selection"],
+            "golden_path": ["stage_selection"],
+            "derailing_states": [],
+            "relative_turns": true,
+            "max_turns_in_stage": 3,
+            "closure_states": [],
+            "guard_rails": {
+                "enforce_sequence": false,
+                "force_closure_after_max_turns": false,
+                "allow_sequence_skip": true,
+                "allow_backward": false,
+                "max_derailing_time": 10,
+                "force_golden_path_return": false
+            },
+            "progression_rules": {
+                "turns_per_state": 1,
+                "force_progression": false,
+                "golden_path_priority": false
+            },
+            "transition_decision_logic": {
+                "stage_selection": {
+                    "choose_politics_tech": "User interessiert sich für Politik & Technologie: 'Politik', 'Wahlen', 'Deepfakes', 'KI', 'Technologie'",
+                    "choose_psychology_society": "User interessiert sich für Psychologie & Gesellschaft: 'Menschen', 'Psychologie', 'Gesellschaft', 'Social Media'"
+                }
+            }
+        },
+        "content_politics_tech": {
+            "states": ["content_intro_pt", "politics_deep_dive", "technology_deep_dive", "content_synthesis_pt", "content_closure_pt"],
+            "golden_path": ["content_intro_pt", "politics_deep_dive", "technology_deep_dive", "content_synthesis_pt", "content_closure_pt"],
+            "derailing_states": [],
+            "target_turns": 15,
+            "relative_turns": true,
+            "max_turns_in_stage": 15,
+            "min_turns": 3,
+            "max_turns": 20,
+            "closure_states": ["content_closure_pt"],
+            "guard_rails": {
+                "enforce_sequence": false,
+                "force_closure_after_max_turns": true,
+                "allow_sequence_skip": true,
+                "allow_backward": true,
+                "max_derailing_time": 5,
+                "force_golden_path_return": false
+            },
+            "progression_rules": {
+                "turns_per_state": 3,
+                "force_progression": false,
+                "golden_path_priority": false
+            },
+            "transition_decision_logic": {
+                "content_intro_pt": {
+                    "start_politics": "User zeigt Interesse an politischen Themen, Wahlen, Propaganda",
+                    "start_technology": "User zeigt Interesse an KI, Deepfakes, technischen Aspekten"
+                },
+                "politics_deep_dive": {
+                    "explore_technology": "User will technische Hintergründe verstehen",
+                    "synthesize_content": "User hat genug über Politik gelernt, will zusammenfassen"
+                },
+                "technology_deep_dive": {
+                    "explore_politics": "User will politische Anwendungen verstehen",
+                    "synthesize_content": "User hat genug über Technologie gelernt, will zusammenfassen"
+                },
+                "content_synthesis_pt": {
+                    "finish_content": "User hat beide Themen verstanden und will abschließen"
+                }
+            }
+        },
+        "content_psychology_society": {
+            "states": ["content_intro_ps", "psychology_deep_dive", "society_deep_dive", "content_synthesis_ps", "content_closure_ps"],
+            "golden_path": ["content_intro_ps", "psychology_deep_dive", "society_deep_dive", "content_synthesis_ps", "content_closure_ps"],
+            "derailing_states": [],
+            "target_turns": 15,
+            "relative_turns": true,
+            "max_turns_in_stage": 15,
+            "min_turns": 3,
+            "max_turns": 20,
+            "closure_states": ["content_closure_ps"],
+            "guard_rails": {
+                "enforce_sequence": false,
+                "force_closure_after_max_turns": true,
+                "allow_sequence_skip": true,
+                "allow_backward": true,
+                "max_derailing_time": 5,
+                "force_golden_path_return": false
+            },
+            "progression_rules": {
+                "turns_per_state": 3,
+                "force_progression": false,
+                "golden_path_priority": false
+            },
+            "transition_decision_logic": {
+                "content_intro_ps": {
+                    "start_psychology": "User zeigt Interesse an psychologischen Aspekten, Bias, Manipulation",
+                    "start_society": "User zeigt Interesse an gesellschaftlichen Auswirkungen, Social Media"
+                },
+                "psychology_deep_dive": {
+                    "explore_society": "User will gesellschaftliche Auswirkungen verstehen",
+                    "synthesize_content": "User hat genug über Psychologie gelernt, will zusammenfassen"
+                },
+                "society_deep_dive": {
+                    "explore_psychology": "User will psychologische Hintergründe verstehen",
+                    "synthesize_content": "User hat genug über Gesellschaft gelernt, will zusammenfassen"
+                },
+                "content_synthesis_ps": {
+                    "finish_content": "User hat beide Themen verstanden und will abschließen"
+                }
+            }
+        }
+    },
+    "inter_stage_transitions": {
+        "onboarding_closure": "stage_selection",
+        "stage_selection": {
+            "choose_politics_tech": "content_politics_tech",
+            "choose_psychology_society": "content_psychology_society"
         }
     },
     "transitions": [
@@ -131,6 +250,81 @@
             "trigger": "emergency_closure",
             "source": ["init_greeting", "engagement_hook", "stimulus_present", "reaction_wait", "explore_path", "confirm_skepticism", "comfort_user", "conversation_repair", "critical_thinking"],
             "dest": "onboarding_closure"
+        },
+        {
+            "trigger": "proceed_to_stage_selection",
+            "source": "onboarding_closure",
+            "dest": "stage_selection"
+        },
+        {
+            "trigger": "choose_politics_tech",
+            "source": "stage_selection",
+            "dest": "content_intro_pt"
+        },
+        {
+            "trigger": "choose_psychology_society",
+            "source": "stage_selection",
+            "dest": "content_intro_ps"
+        },
+        {
+            "trigger": "start_politics",
+            "source": "content_intro_pt",
+            "dest": "politics_deep_dive"
+        },
+        {
+            "trigger": "start_technology",
+            "source": "content_intro_pt",
+            "dest": "technology_deep_dive"
+        },
+        {
+            "trigger": "explore_technology",
+            "source": "politics_deep_dive",
+            "dest": "technology_deep_dive"
+        },
+        {
+            "trigger": "explore_politics",
+            "source": "technology_deep_dive",
+            "dest": "politics_deep_dive"
+        },
+        {
+            "trigger": "synthesize_content",
+            "source": ["politics_deep_dive", "technology_deep_dive"],
+            "dest": "content_synthesis_pt"
+        },
+        {
+            "trigger": "finish_content",
+            "source": "content_synthesis_pt",
+            "dest": "content_closure_pt"
+        },
+        {
+            "trigger": "start_psychology",
+            "source": "content_intro_ps",
+            "dest": "psychology_deep_dive"
+        },
+        {
+            "trigger": "start_society",
+            "source": "content_intro_ps",
+            "dest": "society_deep_dive"
+        },
+        {
+            "trigger": "explore_society",
+            "source": "psychology_deep_dive",
+            "dest": "society_deep_dive"
+        },
+        {
+            "trigger": "explore_psychology",
+            "source": "society_deep_dive",
+            "dest": "psychology_deep_dive"
+        },
+        {
+            "trigger": "synthesize_content",
+            "source": ["psychology_deep_dive", "society_deep_dive"],
+            "dest": "content_synthesis_ps"
+        },
+        {
+            "trigger": "finish_content",
+            "source": "content_synthesis_ps",
+            "dest": "content_closure_ps"
         }
     ],
     "state_system_prompts": {
@@ -203,7 +397,74 @@
             "Fasse kurz zusammen was der User über Fake News gelernt hat.",
             "Betone dass es normal ist, mal getäuscht zu werden.",
             "Mache Mut dass Medienkompetenz erlernbar ist.",
-            "Verabschiede dich freundlich aber nicht endgültig."
+            "Leite zur Stage-Auswahl über: 'Willst du mehr lernen?'"
+        ],
+        "stage_selection": [
+            "Biete dem User zwei spannende Content-Bereiche an.",
+            "Option 1: 'Politik & Technologie - Wahlen, Deepfakes, KI-Tools'",
+            "Option 2: 'Psychologie & Gesellschaft - Manipulation, Social Media, Auswirkungen'",
+            "Frage: 'Was interessiert dich mehr?' oder 'Womit sollen wir anfangen?'",
+            "Sei enthusiastisch und mache Lust auf beide Optionen."
+        ],
+        "content_intro_pt": [
+            "Willkommen in Politik & Technologie!",
+            "Erkläre kurz: Hier geht es um Wahlen, Propaganda und KI-Tools.",
+            "Frage was den User mehr interessiert: politische oder technische Aspekte.",
+            "Sei neugierig: 'Hast du schon mal von Deepfakes in Wahlkämpfen gehört?'"
+        ],
+        "politics_deep_dive": [
+            "Vertiefe politische Aspekte von Fake News.",
+            "Themen: Wahlbeeinflussung, Propaganda, politische Deepfakes.",
+            "Zeige konkrete Beispiele und Auswirkungen auf Demokratie.",
+            "Frage nach User-Erfahrungen mit politischen Inhalten online."
+        ],
+        "technology_deep_dive": [
+            "Vertiefe technische Aspekte von Fake News.",
+            "Themen: KI-Tools, Deepfake-Erstellung, Detection-Algorithmen.",
+            "Erkläre wie die Technologie funktioniert und sich entwickelt.",
+            "Zeige Tools und Methoden zur Erkennung von Fakes."
+        ],
+        "content_synthesis_pt": [
+            "Verbinde Politik und Technologie miteinander.",
+            "Diskutiere wie technische Entwicklungen politische Auswirkungen haben.",
+            "Fasse die wichtigsten Erkenntnisse zusammen.",
+            "Bereite auf Abschluss vor: 'Was nimmst du mit?'"
+        ],
+        "content_closure_pt": [
+            "Schließe Politik & Technologie-Stage ab.",
+            "Betone die Verbindung zwischen Tech und Politik.",
+            "Gib konkrete Tipps für den Alltag mit.",
+            "Ermutige zu weiterem kritischen Denken."
+        ],
+        "content_intro_ps": [
+            "Willkommen in Psychologie & Gesellschaft!",
+            "Erkläre kurz: Hier geht es um menschliche Faktoren und gesellschaftliche Auswirkungen.",
+            "Frage was den User mehr interessiert: psychologische oder gesellschaftliche Aspekte.",
+            "Sei neugierig: 'Warum fallen Menschen überhaupt auf Fake News rein?'"
+        ],
+        "psychology_deep_dive": [
+            "Vertiefe psychologische Aspekte von Fake News.",
+            "Themen: Confirmation Bias, Echo Chambers, kognitive Verzerrungen.",
+            "Erkläre warum unser Gehirn anfällig für Manipulation ist.",
+            "Mache interaktive Beispiele mit dem User."
+        ],
+        "society_deep_dive": [
+            "Vertiefe gesellschaftliche Auswirkungen von Fake News.",
+            "Themen: Social Media Algorithmen, Polarisierung, Fake Porn.",
+            "Diskutiere Auswirkungen auf Beziehungen und Gesellschaft.",
+            "Zeige konkrete Beispiele gesellschaftlicher Schäden."
+        ],
+        "content_synthesis_ps": [
+            "Verbinde Psychologie und Gesellschaft miteinander.",
+            "Diskutiere wie individuelle Psyche und gesellschaftliche Strukturen zusammenhängen.",
+            "Fasse die wichtigsten Erkenntnisse zusammen.",
+            "Bereite auf Abschluss vor: 'Wie können wir als Gesellschaft besser werden?'"
+        ],
+        "content_closure_ps": [
+            "Schließe Psychologie & Gesellschaft-Stage ab.",
+            "Betone die Verantwortung jedes Einzelnen.",
+            "Gib konkrete Tipps für bewussten Medienkonsum.",
+            "Ermutige zu empathischer und kritischer Kommunikation."
         ]
     },
     "trigger_descriptions": {
@@ -219,7 +480,20 @@
         "need_repair": "Emergency: Conversation needs repair/reset",
         "restart_engagement": "Recovery: Restart engagement from repair",
         "finish_onboarding": "Exit: Complete onboarding process",
-        "emergency_closure": "Emergency: Force end onboarding at turn 12+"
+        "emergency_closure": "Emergency: Force end onboarding at turn 12+",
+        "proceed_to_stage_selection": "Transition: Move from onboarding to stage selection",
+        "choose_politics_tech": "Choice: User selects Politics & Technology content stage",
+        "choose_psychology_society": "Choice: User selects Psychology & Society content stage",
+        "start_politics": "Content: Begin politics deep dive",
+        "start_technology": "Content: Begin technology deep dive",
+        "start_psychology": "Content: Begin psychology deep dive",
+        "start_society": "Content: Begin society deep dive",
+        "explore_technology": "Content: Switch from politics to technology",
+        "explore_politics": "Content: Switch from technology to politics",
+        "explore_society": "Content: Switch from psychology to society",
+        "explore_psychology": "Content: Switch from society to psychology",
+        "synthesize_content": "Content: Ready to synthesize learnings",
+        "finish_content": "Content: Complete content stage"
     },
     "state_examples": {
         "init_greeting": [
@@ -408,6 +682,188 @@
             {
                 "role": "assistant",
                 "content": "Freut mich! Du hast heute gelernt auf dein Bauchgefühl zu hören und kritisch zu hinterfragen. Das sind super wichtige Skills. Falls du nochmal Fragen hast, bin ich da!"
+            }
+        ],
+        "stage_selection": [
+            {
+                "role": "human",
+                "content": "Okay, ich hab verstanden dass man vorsichtig sein muss"
+            },
+            {
+                "role": "assistant",
+                "content": "Super! Du hast echt viel gelernt. Willst du noch tiefer einsteigen? Ich kann dir zwei spannende Bereiche anbieten: Politik & Technologie - da geht's um Wahlen, Deepfakes und KI-Tools. Oder Psychologie & Gesellschaft - warum Menschen auf Fake News reinfallen und welche Auswirkungen das hat. Was interessiert dich mehr?"
+            },
+            {
+                "role": "human",
+                "content": "Was gibt es denn alles?"
+            },
+            {
+                "role": "assistant",
+                "content": "Gute Frage! Bei Politik & Technologie schauen wir uns an, wie Fake News in Wahlkämpfen eingesetzt werden und welche krassen KI-Tools es gibt. Bei Psychologie & Gesellschaft geht's darum, warum unser Gehirn so leicht getäuscht wird und wie das unsere Gesellschaft verändert. Beide sind mega interessant!"
+            }
+        ],
+        "content_intro_pt": [
+            {
+                "role": "human",
+                "content": "Politik und Technologie klingt interessant"
+            },
+            {
+                "role": "assistant",
+                "content": "Perfekte Wahl! Politik & Technologie ist echt krass. Hier verschmelzen zwei Welten: Auf der einen Seite Politik, Wahlen und Propaganda. Auf der anderen Seite modernste KI-Technologie und Deepfakes. Was interessiert dich mehr - die politischen Tricks oder die technischen Hintergründe?"
+            },
+            {
+                "role": "human",
+                "content": "Beide eigentlich"
+            },
+            {
+                "role": "assistant",
+                "content": "Top! Dann machen wir beides. Hast du schon mal gehört, dass mit Deepfakes ganze Wahlkämpfe manipuliert werden? Oder dass Politiker Reden halten, die sie nie gehalten haben? Womit sollen wir anfangen?"
+            }
+        ],
+        "politics_deep_dive": [
+            {
+                "role": "human",
+                "content": "Wie werden denn Wahlen manipuliert?"
+            },
+            {
+                "role": "assistant",
+                "content": "Krasse Frage! Es gibt mehrere Wege: Fake Videos von Politikern, manipulierte Statistiken, oder erfundene Skandale kurz vor der Wahl. In den USA 2020 gab's massenhaft Falschinfos über Wahlbetrug. Hast du schon mal erlebt, dass online über Politik gelogen wurde?"
+            },
+            {
+                "role": "human",
+                "content": "Ja, auf TikTok sehe ich oft komische Videos"
+            },
+            {
+                "role": "assistant",
+                "content": "Genau! TikTok und andere Plattformen sind voll davon. Das Problem: Ein falsches Video kann millionenfach geteilt werden, bevor jemand merkt, dass es fake ist. Was denkst du, warum teilen Menschen sowas, ohne zu checken ob's stimmt?"
+            }
+        ],
+        "technology_deep_dive": [
+            {
+                "role": "human",
+                "content": "Wie funktionieren Deepfakes eigentlich?"
+            },
+            {
+                "role": "assistant",
+                "content": "Mega spannend! Deepfakes nutzen KI-Algorithmen, die tausende Fotos von einer Person analysieren und dann das Gesicht auf andere Videos 'kleben'. Die KI lernt dabei, wie sich Mimik und Bewegungen anfühlen. Mittlerweile gibt's Apps, wo du das in wenigen Minuten machen kannst!"
+            },
+            {
+                "role": "human",
+                "content": "Das ist ja erschreckend einfach"
+            },
+            {
+                "role": "assistant",
+                "content": "Stimmt! Die Technologie wird immer besser und einfacher. Aber es gibt auch Hoffnung: Es werden parallel Tools entwickelt, die Deepfakes erkennen können. Die schauen auf winzige Details wie Lidschlag-Frequenz oder Hautreflektionen. Ein Wettrüsten zwischen Erstellern und Detektoren!"
+            }
+        ],
+        "content_synthesis_pt": [
+            {
+                "role": "human",
+                "content": "Krass, wie hängt das alles zusammen?"
+            },
+            {
+                "role": "assistant",
+                "content": "Gute Frage! Technologie ermöglicht neue Formen der politischen Manipulation. Früher brauchte man Millionen für Propaganda - heute reicht ein Laptop. Gleichzeitig entwickelt die Tech-Branche Lösungen. Es ist ein ständiger Kampf zwischen Missbrauch und Schutz. Was denkst du, wer gewinnt?"
+            },
+            {
+                "role": "human",
+                "content": "Schwer zu sagen..."
+            },
+            {
+                "role": "assistant",
+                "content": "Stimmt, ist komplex! Aber eins ist sicher: Je mehr Menschen wie du Bescheid wissen, desto schwerer wird's für die Manipulatoren. Bildung ist die beste Waffe gegen Desinformation. Was nimmst du aus allem mit?"
+            }
+        ],
+        "content_closure_pt": [
+            {
+                "role": "human",
+                "content": "Ich werde definitiv vorsichtiger sein"
+            },
+            {
+                "role": "assistant",
+                "content": "Das freut mich riesig! Du hast heute gelernt, wie Politik und Technologie zusammenspielen können - sowohl zum Guten als auch zum Schlechten. Mein Tipp: Bleib neugierig, hinterfrage kritisch und teile dein Wissen. Du bist jetzt Teil der Lösung!"
+            }
+        ],
+        "content_intro_ps": [
+            {
+                "role": "human", 
+                "content": "Psychologie und Gesellschaft hört sich spannend an"
+            },
+            {
+                "role": "assistant",
+                "content": "Super Wahl! Bei Psychologie & Gesellschaft geht's um die menschliche Seite von Fake News. Warum fallen wir überhaupt darauf rein? Wie verändert das unsere Gesellschaft? Was interessiert dich mehr - warum unser Gehirn so leicht getäuscht wird oder wie sich das auf uns alle auswirkt?"
+            },
+            {
+                "role": "human",
+                "content": "Warum fallen Menschen darauf rein?"
+            },
+            {
+                "role": "assistant",
+                "content": "Perfekte Frage! Unser Gehirn hat evolutionäre 'Bugs' - wir glauben schneller Dinge, die unsere Meinung bestätigen, und haben Angst vor Bedrohungen. Fake News nutzen genau diese Schwächen aus. Kennst du das Gefühl, sofort zu glauben was zu deiner Meinung passt?"
+            }
+        ],
+        "psychology_deep_dive": [
+            {
+                "role": "human",
+                "content": "Ja, das kenn ich. Warum ist das so?"
+            },
+            {
+                "role": "assistant",
+                "content": "Das nennt sich Confirmation Bias - unser Gehirn liebt Bestätigung! Evolutionär war das mal sinnvoll: Schnelle Entscheidungen überlebten besser als langes Grübeln. Heute wird das gegen uns verwendet. In sozialen Medien siehst du hauptsächlich Inhalte, die deine Meinung bestätigen - eine Echokammer!"
+            },
+            {
+                "role": "human",
+                "content": "Kann man sich dagegen schützen?"
+            },
+            {
+                "role": "assistant",
+                "content": "Zum Glück ja! Bewusstsein ist der erste Schritt. Stell dir vor jeder Nachricht die Frage: 'Will ich das glauben, weil es stimmt oder weil es zu meiner Meinung passt?' Suche bewusst nach Gegenmeinungen. Unser Gehirn kann lernen, skeptischer zu werden!"
+            }
+        ],
+        "society_deep_dive": [
+            {
+                "role": "human",
+                "content": "Wie verändert das unsere Gesellschaft?"
+            },
+            {
+                "role": "assistant",
+                "content": "Dramatisch! Fake News spalten uns in verschiedene Realitäten auf. Familie und Freunde streiten über 'Fakten', die komplett erfunden sind. Social Media Algorithmen verstärken das, weil Streit mehr Klicks bringt. Hast du schon mal erlebt, dass Menschen komplett verschiedene 'Wahrheiten' haben?"
+            },
+            {
+                "role": "human",
+                "content": "Ja, meine Oma glaubt manchmal komische Sachen"
+            },
+            {
+                "role": "assistant",
+                "content": "Das ist ein perfektes Beispiel! Ältere Menschen sind oft stärker betroffen, weil sie mit digitalen Medien weniger vertraut sind. Fake News werden speziell für verschiedene Zielgruppen gemacht. Das Krasse: Es betrifft nicht nur Politik, sondern auch Gesundheit, Beziehungen, sogar Fake Porn wird verwendet, um Menschen zu erpressen."
+            }
+        ],
+        "content_synthesis_ps": [
+            {
+                "role": "human",
+                "content": "Das ist ja ein riesiges Problem"
+            },
+            {
+                "role": "assistant",
+                "content": "Stimmt! Aber verstehst du jetzt die Verbindung? Unsere psychologischen Schwächen werden systematisch ausgenutzt, um die Gesellschaft zu spalten. Das Gute: Je mehr Menschen das verstehen, desto schwächer wird die Wirkung. Wie können wir als Gesellschaft besser werden?"
+            },
+            {
+                "role": "human",
+                "content": "Mehr Bildung und Verständnis?"
+            },
+            {
+                "role": "assistant",
+                "content": "Genau! Und Empathie. Anstatt Menschen zu verurteilen, die auf Fake News reinfallen, sollten wir verstehen warum das passiert. Jeder kann betroffen sein. Wichtig ist respektvolle Aufklärung statt Angriff. Du machst das gerade perfekt - du lernst und wirst andere aufklären können!"
+            }
+        ],
+        "content_closure_ps": [
+            {
+                "role": "human",
+                "content": "Ich verstehe jetzt viel besser wie das alles funktioniert"
+            },
+            {
+                "role": "assistant",
+                "content": "Das ist fantastisch! Du hast heute gelernt, dass Fake News nicht nur ein technisches Problem sind, sondern tief in unserer Psychologie und Gesellschaft verwurzelt. Mein Tipp: Sei geduldig mit anderen, bleib empathisch, aber auch kritisch. Du kannst einen echten Unterschied machen!"
             }
         ]
     }

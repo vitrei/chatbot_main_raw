@@ -16,35 +16,41 @@ class LLMDecisionAgent(BaseDecisionAgent):
     def __init__(self):
         super().__init__()
         
-        # Streamlined decision agent prompt for transitions
+        # Balanced decision agent prompt - structured but compact
         decision_agent_prompt = """
 Du bist Decision Agent für Fake-News-Aufklärung.
 
-CURRENT STATE: {current_state}
-USER MESSAGE: {last_user_message}
-USER PROFILE: {user_profile}
-TURN COUNTER: {turn_counter}
+=== KONTEXT ===
+STATE: {current_state} | STAGE: {current_stage} | TURN: {turn_counter} ({stage_turn_info})
+USER: {last_user_message}
+PROFIL: {user_profile}
 
-VERFÜGBARE TRANSITIONS:
+=== ZIELE ===
+Stage: {stage_context_short}
+State: {state_purpose_short}
+
+=== TRANSITIONS ===
 {available_transitions}
 
-TRANSITION REGELN FÜR {current_state}:
+=== REGELN ===
 {transition_logic}
 
-WICHTIG: Du MUSST IMMER eine Transition aus den verfügbaren Optionen wählen!
-Es gibt KEINE Option für "keine Transition" - die State Machine funktioniert nur mit Transitions.
+=== ENTSCHEIDUNGSFRAMEWORK ===
+1. User-Absicht verstehen:
+   - "erzähl mir" = Vertiefung (meist kein Transition)
+   - Themenwechsel = Transition wählen
+   - Verwirrung = repair/comfort
 
-Analysiere die User-Antwort und wähle die passendste Transition:
-- Bei Interesse/Neugier: wähle engagement/interest Transition
-- Bei Ablehnung/Widerstand: wähle repair/comfort Transition  
-- Bei Skepsis: wähle skeptical Transition
-- Bei Verwirrung: wähle repair Transition
+2. Pädagogisches Ziel:
+   - Vertiefung vs. Progression
+   - User Engagement beachten
 
-JSON Response:
+WICHTIG: Antworte NUR mit diesem JSON-Format:
 {{
-    "trigger": "gewählter_trigger_name",
-    "reason": "warum diese Transition passt",
-    "guiding_instruction": "general_guidance"
+    "trigger": "exact_trigger_name",
+    "reason": "Detaillierte Begründung basierend auf User-Absicht",
+    "user_intent": "Was der User wirklich möchte",
+    "pedagogical_goal": "Warum diese Transition das Lernziel unterstützt"
 }}
 """
 
@@ -382,23 +388,51 @@ JSON Response:
         return '\n'.join(transition_text)
     
     def extract_and_parse_json(self, response_content):
-        """Extract and parse JSON from LLM response"""
+        """Extract and parse JSON from LLM response - robust version"""
         try:
-            # Clean response
+            # Clean response - remove markdown formatting
             content = re.sub(r'```json\s*', '', response_content)
             content = re.sub(r'```\s*$', '', content)
+            content = content.strip()
             
-            # Find JSON pattern
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                return json.loads(json_str)
+            # Look for JSON in different patterns
+            json_patterns = [
+                r'\{[^{}]*"trigger"[^{}]*\}',  # Look for trigger field specifically
+                r'\{.*?"trigger".*?\}',        # More flexible trigger search
+                r'\{.*\}',                     # Any JSON-like structure
+            ]
             
-            print("❌ No JSON found in response")
+            for pattern in json_patterns:
+                json_match = re.search(pattern, content, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    try:
+                        parsed = json.loads(json_str)
+                        if 'trigger' in parsed:  # Validate it has required field
+                            return parsed
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Fallback: Try to extract trigger manually from text
+            print("🔄 JSON parsing failed, trying manual extraction...")
+            trigger_match = re.search(r'"trigger":\s*"([^"]+)"', content)
+            if trigger_match:
+                trigger = trigger_match.group(1)
+                print(f"🔧 Extracted trigger manually: {trigger}")
+                return {
+                    'trigger': trigger,
+                    'reason': 'Manual extraction from malformed response',
+                    'user_intent': 'Parsing fallback',
+                    'pedagogical_goal': 'Continue conversation'
+                }
+            
+            print("❌ No JSON or trigger found in response")
+            print(f"❌ Response content: {response_content[:200]}...")
             return {}
             
         except Exception as e:
             print(f"❌ JSON parsing error: {e}")
+            print(f"❌ Response content: {response_content[:200]}...")
             return {}
     
     def check_guard_rail_enforcement(self, agent_state: AgentState, available_transitions):
@@ -420,8 +454,9 @@ JSON Response:
             print(f"   Min turns: {min_turns}, Max turns: {max_turns}")
             print(f"   Force closure enabled: {guard_rails.get('force_closure_after_max_turns', False)}")
             
-            # === PRIORITY 1: ABSOLUTE TURN 12 CLOSURE (HIGHEST PRIORITY) ===
-            if turn_counter >= 12:
+            # === PRIORITY 1: ABSOLUTE TURN 12 CLOSURE (ONLY FOR ONBOARDING STAGE) ===
+            current_stage = agent_state.state_machine.current_stage
+            if turn_counter >= 12 and current_stage == 'onboarding':
                 print(f"🚨 ABSOLUTE CLOSURE: Turn {turn_counter} >= 12 - MUST end onboarding")
                 # Find any available transition to onboarding_closure
                 closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
@@ -444,8 +479,8 @@ JSON Response:
                                 print(f"🆘 LAST RESORT CLOSURE: {t['trigger']}")
                                 return t['trigger']
             
-            # === PRIORITY 2: TURN 11+ WARNING - PREPARE FOR CLOSURE ===
-            elif turn_counter >= 11:
+            # === PRIORITY 2: TURN 11+ WARNING - PREPARE FOR CLOSURE (ONLY FOR ONBOARDING) ===
+            elif turn_counter >= 11 and current_stage == 'onboarding':
                 print(f"⚠️ CLOSURE WARNING: Turn {turn_counter} - should move toward closure soon")
                 closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
                 if closure_transitions:
@@ -484,6 +519,141 @@ JSON Response:
             return sequence.index(state)
         except ValueError:
             return -1
+    
+    def get_stage_turn_info(self, agent_state: AgentState) -> str:
+        """Get stage-relative turn information"""
+        try:
+            if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+                return "unknown"
+            
+            sm = agent_state.state_machine
+            turn_counter = agent_state.conversation_turn_counter
+            stage_start_turn = getattr(sm, 'stage_start_turn', 0)
+            turns_in_stage = turn_counter - stage_start_turn
+            
+            stage_config = sm.stages.get(sm.current_stage, {})
+            max_turns_in_stage = stage_config.get('max_turns_in_stage', stage_config.get('max_turns', 15))
+            
+            return f"{turns_in_stage}/{max_turns_in_stage}"
+        except Exception as e:
+            return f"error: {e}"
+    
+    def get_stage_context_description(self, agent_state: AgentState) -> str:
+        """Get description of current stage goals and context"""
+        try:
+            if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+                return "Keine Stage-Information verfügbar"
+            
+            current_stage = agent_state.state_machine.current_stage
+            
+            stage_descriptions = {
+                'onboarding': """
+**ONBOARDING STAGE ZIEL**: User für Fake News sensibilisieren durch persönliches Erlebnis
+- Fake Video zeigen → Reaktion abwarten → kritisches Denken fördern
+- Emotionale Betroffenheit nutzen für Lernmoment
+- Übergang zu Content-Stages vorbereiten""",
+                
+                'stage_selection': """
+**STAGE SELECTION ZIEL**: User zwischen zwei Content-Bereichen wählen lassen
+- Politik & Technologie vs. Psychologie & Gesellschaft
+- User-Interesse identifizieren für personalisiertes Lernen""",
+                
+                'content_politics_tech': """
+**POLITIK & TECHNOLOGIE STAGE ZIEL**: Verständnis für technische und politische Aspekte
+- Technologie: Deepfakes, KI-Tools, Manipulation-Software
+- Politik: Wahlbeeinflussung, Propaganda, demokratische Auswirkungen
+- Synthese: Verbindung zwischen Technik und politischer Nutzung""",
+                
+                'content_psychology_society': """
+**PSYCHOLOGIE & GESELLSCHAFT STAGE ZIEL**: Verständnis für menschliche und gesellschaftliche Faktoren
+- Psychologie: Cognitive Bias, Bestätigungsfehler, emotionale Manipulation
+- Gesellschaft: Social Media Dynamiken, Filterblase, Polarisierung
+- Synthese: Wie psychologische Faktoren gesellschaftliche Probleme verstärken"""
+            }
+            
+            return stage_descriptions.get(current_stage, f"Unbekannte Stage: {current_stage}")
+            
+        except Exception as e:
+            return f"Fehler beim Laden der Stage-Beschreibung: {e}"
+    
+    def get_stage_context_short(self, agent_state: AgentState) -> str:
+        """Get compact stage context for fast decisions"""
+        try:
+            if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+                return "Unbekannt"
+            
+            current_stage = agent_state.state_machine.current_stage
+            
+            short_descriptions = {
+                'onboarding': "Fake News Sensibilisierung durch persönliches Video",
+                'stage_selection': "Wahl zwischen Politik/Tech vs Psychologie/Gesellschaft", 
+                'content_politics_tech': "Technologie + Politik: Deepfakes, Wahlen, Propaganda",
+                'content_psychology_society': "Psychologie + Gesellschaft: Bias, Social Media, Filterblase"
+            }
+            
+            return short_descriptions.get(current_stage, current_stage)
+            
+        except Exception as e:
+            return "Error"
+    
+    def get_state_purpose_description(self, agent_state: AgentState, current_state: str) -> str:
+        """Get description of what the current state is trying to achieve"""
+        try:
+            if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+                return "Keine State-Information verfügbar"
+            
+            # Load state machine config for state descriptions
+            from conversational_agents.agent_logic.state_machine_wrapper import load_state_machine_config
+            config = load_state_machine_config()
+            
+            if not config:
+                return "State Machine Konfiguration nicht verfügbar"
+            
+            # Get state examples/descriptions which describe the purpose
+            state_examples = config.get('state_examples', {})
+            current_state_examples = state_examples.get(current_state, [])
+            
+            if current_state_examples:
+                # Use first example as purpose description
+                first_example = current_state_examples[0] if isinstance(current_state_examples, list) else current_state_examples
+                if isinstance(first_example, dict) and 'bot' in first_example:
+                    return f"**{current_state.upper()} ZWECK**: {first_example['bot'][:100]}..."
+                elif isinstance(first_example, str):
+                    return f"**{current_state.upper()} ZWECK**: {first_example[:100]}..."
+            
+            # Fallback: use state system prompts
+            state_prompts = config.get('state_system_prompts', {})
+            current_state_prompts = state_prompts.get(current_state, [])
+            
+            if current_state_prompts and isinstance(current_state_prompts, list) and current_state_prompts:
+                return f"**{current_state.upper()} ZWECK**: {' '.join(current_state_prompts[:2])}"
+            
+            return f"**{current_state.upper()}**: Zweck nicht definiert in Konfiguration"
+            
+        except Exception as e:
+            return f"Fehler beim Laden der State-Beschreibung: {e}"
+    
+    def get_state_purpose_short(self, agent_state: AgentState, current_state: str) -> str:
+        """Get compact state purpose for fast decisions"""
+        try:
+            # Quick hardcoded mappings for speed
+            state_purposes = {
+                'content_intro_pt': "Politik/Tech Einstieg - Thema wählen",
+                'politics_deep_dive': "Politik vertiefen - Wahlen, Propaganda",
+                'technology_deep_dive': "Technologie vertiefen - Deepfakes, KI",
+                'content_synthesis_pt': "Politik+Tech zusammenfassen",
+                'content_intro_ps': "Psychologie/Gesellschaft Einstieg",
+                'psychology_deep_dive': "Psychologie vertiefen - Bias, Manipulation", 
+                'society_deep_dive': "Gesellschaft vertiefen - Social Media",
+                'content_synthesis_ps': "Psychologie+Gesellschaft zusammenfassen",
+                'stage_selection': "Content-Bereich wählen",
+                'onboarding_closure': "Onboarding abschließen"
+            }
+            
+            return state_purposes.get(current_state, current_state)
+            
+        except Exception as e:
+            return current_state
 
     def next_action(self, agent_state: AgentState):
         print(f"🔢 TURN COUNTER: {agent_state.conversation_turn_counter}")
@@ -523,12 +693,21 @@ JSON Response:
                     current_state = agent_state.state_machine.get_current_state()
                     print(f"✅ FORCED TRANSITION EXECUTED: {forced_transition}")
         
-        # Prepare LLM prompt data
+        # Prepare FAST LLM prompt data - compact versions for speed
+        current_stage = agent_state.state_machine.current_stage if hasattr(agent_state, 'state_machine') and agent_state.state_machine else 'unknown'
+        stage_turn_info = self.get_stage_turn_info(agent_state)
+        stage_context_short = self.get_stage_context_short(agent_state)
+        state_purpose_short = self.get_state_purpose_short(agent_state, current_state)
+        
         prompt_data = {
             "current_state": current_state,
+            "current_stage": current_stage,
+            "stage_turn_info": stage_turn_info,
             "last_user_message": agent_context['last_user_message'],
             "user_profile": agent_context['user_profile'],
             "turn_counter": agent_context['conversation_turn_counter'],
+            "stage_context_short": stage_context_short,
+            "state_purpose_short": state_purpose_short,
             "available_transitions": self.format_transitions_for_prompt(available_transitions),
             "transition_logic": transition_logic
         }
@@ -538,11 +717,20 @@ JSON Response:
         print(f"📝 PROMPT DATA: {prompt_data}")
         
         try:
+            import time
+            start_time = time.time()
             response = self.chain.invoke(prompt_data)
-            print(f"🤖 LLM RAW RESPONSE: {response.content}")
+            llm_time = time.time() - start_time
+            print(f"🤖 LLM RESPONSE ({llm_time:.2f}s): {response.content}")
             
             llm_decision = self.extract_and_parse_json(response.content)
             print(f"🧠 LLM DECISION PARSED: {llm_decision}")
+            
+            # Enhanced logging for decision quality
+            if 'user_intent' in llm_decision:
+                print(f"👤 USER INTENT: {llm_decision['user_intent']}")
+            if 'pedagogical_goal' in llm_decision:
+                print(f"🎓 PEDAGOGICAL GOAL: {llm_decision['pedagogical_goal']}")
             
             # Execute state transition (LLM MUST always choose one)
             trigger = llm_decision.get('trigger')
@@ -579,7 +767,11 @@ JSON Response:
                         success = agent_state.state_machine.execute_transition(trigger, reason, agent_state.conversation_turn_counter)
                         if success:
                             print(f"✅ STATE TRANSITION EXECUTED: {trigger} - {reason}")
+                            
+                            # Update current_state to reflect any stage changes (inter-stage transitions)
                             current_state = agent_state.state_machine.get_current_state()
+                            print(f"🔍 UPDATED CURRENT STATE: {current_state}")
+                            print(f"🔍 UPDATED CURRENT STAGE: {agent_state.state_machine.current_stage}")
                         else:
                             print(f"❌ STATE TRANSITION FAILED: {trigger} (execution error)")
                     else:
