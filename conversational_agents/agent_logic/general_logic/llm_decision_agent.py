@@ -402,7 +402,7 @@ JSON Response:
             return {}
     
     def check_guard_rail_enforcement(self, agent_state: AgentState, available_transitions):
-        """Check if guard rails require forced transitions"""
+        """Check if guard rails require forced transitions - PRIORITY ORDER"""
         try:
             if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
                 return None
@@ -412,25 +412,66 @@ JSON Response:
             stage_info = agent_state.state_machine.stages.get(agent_state.state_machine.current_stage, {})
             
             mandatory_sequence = stage_info.get('mandatory_sequence', [])
-            min_turns = stage_info.get('min_turns', 10)
+            min_turns = stage_info.get('min_turns', 8)
             max_turns = stage_info.get('max_turns', 12)
             guard_rails = stage_info.get('guard_rails', {})
             
-            # Force closure after max turns
-            if turn_counter >= max_turns and guard_rails.get('force_closure_after_max_turns', False):
+            print(f"🔒 GUARD RAIL CHECK: Turn {turn_counter}, State {current_state}")
+            print(f"   Min turns: {min_turns}, Max turns: {max_turns}")
+            print(f"   Force closure enabled: {guard_rails.get('force_closure_after_max_turns', False)}")
+            
+            # === PRIORITY 1: ABSOLUTE TURN 12 CLOSURE (HIGHEST PRIORITY) ===
+            if turn_counter >= 12:
+                print(f"🚨 ABSOLUTE CLOSURE: Turn {turn_counter} >= 12 - MUST end onboarding")
+                # Find any available transition to onboarding_closure
                 closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
                 if closure_transitions:
+                    print(f"✅ Found closure transition: {closure_transitions[0]['trigger']}")
                     return closure_transitions[0]['trigger']
+                else:
+                    print(f"❌ NO CLOSURE TRANSITIONS AVAILABLE - using emergency_closure")
+                    # Emergency: Force emergency_closure trigger (should always be available)
+                    all_transitions = agent_state.state_machine.get_available_transitions(turn_counter)
+                    emergency_transition = next((t for t in all_transitions if t['trigger'] == 'emergency_closure'), None)
+                    if emergency_transition:
+                        print(f"🆘 EMERGENCY CLOSURE: emergency_closure (bypassing all guard rails)")
+                        return 'emergency_closure'
+                    else:
+                        print(f"🚨 CRITICAL ERROR: No emergency_closure transition available!")
+                        # Last resort: try any closure transition that exists in config
+                        for t in all_transitions:
+                            if t['dest'] == 'onboarding_closure':
+                                print(f"🆘 LAST RESORT CLOSURE: {t['trigger']}")
+                                return t['trigger']
             
-            # Force progression through mandatory sequence
-            if guard_rails.get('enforce_sequence', False) and mandatory_sequence:
-                current_index = self.get_sequence_index_decision(current_state, mandatory_sequence)
-                if current_index >= 0 and current_index < len(mandatory_sequence) - 1:
-                    next_mandatory = mandatory_sequence[current_index + 1]
-                    next_transitions = [t for t in available_transitions if t['dest'] == next_mandatory]
-                    if next_transitions and turn_counter >= (current_index + 1) * 2:  # Force progression every 2 turns
-                        return next_transitions[0]['trigger']
+            # === PRIORITY 2: TURN 11+ WARNING - PREPARE FOR CLOSURE ===
+            elif turn_counter >= 11:
+                print(f"⚠️ CLOSURE WARNING: Turn {turn_counter} - should move toward closure soon")
+                closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
+                if closure_transitions:
+                    print(f"💡 Closure available: {closure_transitions[0]['trigger']} - suggesting closure")
+                    return closure_transitions[0]['trigger']
+                else:
+                    # Try emergency closure at turn 11 too
+                    all_transitions = agent_state.state_machine.get_available_transitions(turn_counter)
+                    emergency_transition = next((t for t in all_transitions if t['trigger'] == 'emergency_closure'), None)
+                    if emergency_transition:
+                        print(f"🆘 TURN 11 EMERGENCY: using emergency_closure")
+                        return 'emergency_closure'
             
+            # === PRIORITY 3: REGULAR GUARD RAILS (ONLY BEFORE TURN 11) ===
+            elif turn_counter < 11:
+                # Force progression through mandatory sequence (only early in conversation)
+                if guard_rails.get('enforce_sequence', False) and mandatory_sequence:
+                    current_index = self.get_sequence_index_decision(current_state, mandatory_sequence)
+                    if current_index >= 0 and current_index < len(mandatory_sequence) - 1:
+                        next_mandatory = mandatory_sequence[current_index + 1]
+                        next_transitions = [t for t in available_transitions if t['dest'] == next_mandatory]
+                        if next_transitions and turn_counter >= (current_index + 1) * 2:  # Force progression every 2 turns
+                            print(f"🔄 SEQUENCE ENFORCEMENT: {next_transitions[0]['trigger']} -> {next_mandatory}")
+                            return next_transitions[0]['trigger']
+            
+            print(f"✅ No forced transitions needed at turn {turn_counter}")
             return None
             
         except Exception as e:
@@ -477,7 +518,7 @@ JSON Response:
         if forced_transition:
             print(f"⚡ GUARD RAIL ENFORCEMENT: Forcing transition {forced_transition}")
             if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
-                success = agent_state.state_machine.execute_transition(forced_transition, "Guard rail enforcement")
+                success = agent_state.state_machine.execute_transition(forced_transition, "Guard rail enforcement", agent_state.conversation_turn_counter)
                 if success:
                     current_state = agent_state.state_machine.get_current_state()
                     print(f"✅ FORCED TRANSITION EXECUTED: {forced_transition}")
@@ -509,37 +550,89 @@ JSON Response:
             
             if not trigger:
                 print(f"❌ LLM FAILED TO CHOOSE TRANSITION - using fallback")
-                # Fallback: choose first available transition
-                if available_transitions:
-                    trigger = available_transitions[0]['trigger']
+                # Fallback: choose first allowed transition
+                allowed_transitions_fallback = [t for t in available_transitions if t.get('allowed', True)]
+                if allowed_transitions_fallback:
+                    trigger = allowed_transitions_fallback[0]['trigger']
                     reason = "Fallback - LLM failed to choose"
-                    print(f"🔄 FALLBACK TRANSITION: {trigger}")
+                    print(f"🔄 LLM FAILED FALLBACK: {trigger}")
+                else:
+                    print(f"❌ NO ALLOWED TRANSITIONS FOR LLM FALLBACK")
             
             if trigger:
                 print(f"🔄 LLM RECOMMENDS TRANSITION: {trigger} - {reason}")
                 
                 if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
-                    success = agent_state.state_machine.execute_transition(trigger, reason)
-                    if success:
-                        print(f"✅ STATE TRANSITION EXECUTED: {trigger} - {reason}")
-                        # Update current state after transition
-                        current_state = agent_state.state_machine.get_current_state()
+                    # Check if the chosen transition is allowed by guard rails
+                    allowed_transitions = [t for t in available_transitions if t.get('allowed', True)]
+                    chosen_transition = next((t for t in allowed_transitions if t['trigger'] == trigger), None)
+                    
+                    print(f"🔍 TRANSITION ANALYSIS:")
+                    print(f"  LLM chose: {trigger}")
+                    print(f"  Total available: {len(available_transitions)}")
+                    print(f"  Guard rail allowed: {len(allowed_transitions)}")
+                    print(f"  LLM choice in allowed: {'Yes' if chosen_transition else 'No'}")
+                    
+                    if chosen_transition:
+                        # LLM choice is allowed - execute it
+                        print(f"✅ LLM CHOICE IS ALLOWED: {trigger}")
+                        success = agent_state.state_machine.execute_transition(trigger, reason, agent_state.conversation_turn_counter)
+                        if success:
+                            print(f"✅ STATE TRANSITION EXECUTED: {trigger} - {reason}")
+                            current_state = agent_state.state_machine.get_current_state()
+                        else:
+                            print(f"❌ STATE TRANSITION FAILED: {trigger} (execution error)")
                     else:
-                        print(f"❌ STATE TRANSITION FAILED: {trigger}")
+                        # LLM choice is blocked by guard rails - use fallback
+                        print(f"🚧 GUARD RAIL BLOCKED LLM CHOICE: {trigger}")
+                        
+                        # Find specific block reason
+                        blocked_transition = next((t for t in available_transitions if t['trigger'] == trigger), None)
+                        if blocked_transition:
+                            print(f"    Block reason: {blocked_transition.get('block_reason', 'Unknown')}")
+                        
+                        if allowed_transitions:
+                            fallback_trigger = allowed_transitions[0]['trigger']
+                            fallback_reason = f"Guard rail fallback: {trigger} blocked, using {fallback_trigger}"
+                            print(f"🔄 SELECTING FALLBACK: {fallback_trigger}")
+                            
+                            success = agent_state.state_machine.execute_transition(fallback_trigger, fallback_reason, agent_state.conversation_turn_counter)
+                            if success:
+                                print(f"✅ FALLBACK TRANSITION EXECUTED: {fallback_trigger}")
+                                current_state = agent_state.state_machine.get_current_state()
+                                # Update reason for consistency
+                                reason = fallback_reason
+                            else:
+                                print(f"❌ FALLBACK TRANSITION FAILED: {fallback_trigger} (execution error)")
+                        else:
+                            print(f"❌ NO ALLOWED TRANSITIONS AVAILABLE from {current_state}")
+                            print(f"    All transitions blocked by guard rails:")
+                            for t in available_transitions:
+                                print(f"      {t['trigger']}: {t.get('block_reason', 'Unknown reason')}")
             else:
                 print(f"🚫 NO TRANSITION POSSIBLE for {current_state}")
             
         except Exception as e:
             print(f"❌ LLM Decision failed: {e}")
-            # Fallback: force a transition
-            if available_transitions:
-                trigger = available_transitions[0]['trigger']
-                reason = "Exception fallback"
+            # Exception fallback: use first allowed transition
+            allowed_transitions_exception = [t for t in available_transitions if t.get('allowed', True)]
+            if allowed_transitions_exception:
+                trigger = allowed_transitions_exception[0]['trigger']
+                reason = "Exception fallback - LLM failed"
                 print(f"🔄 EXCEPTION FALLBACK TRANSITION: {trigger}")
                 if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
-                    agent_state.state_machine.execute_transition(trigger, reason)
-                    current_state = agent_state.state_machine.get_current_state()
+                    success = agent_state.state_machine.execute_transition(trigger, reason, agent_state.conversation_turn_counter)
+                    if success:
+                        current_state = agent_state.state_machine.get_current_state()
+                        print(f"✅ EXCEPTION FALLBACK EXECUTED: {trigger}")
+                    else:
+                        print(f"❌ EXCEPTION FALLBACK FAILED: {trigger}")
+            else:
+                print(f"❌ NO ALLOWED TRANSITIONS FOR EXCEPTION FALLBACK")
+                print(f"    Available transitions: {[t['trigger'] for t in available_transitions]}")
+                print(f"    All blocked by guard rails")
             llm_decision = {'guiding_instruction': 'general_guidance'}
+            trigger = None  # Ensure trigger is set for safety
         
         # Load state-specific content from state_machine.json
         state_machine_config = load_state_machine_config()

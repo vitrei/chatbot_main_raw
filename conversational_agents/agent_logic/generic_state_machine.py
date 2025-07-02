@@ -47,7 +47,7 @@ class SequenceRule(GuardRailRule):
         return f"Sequence rule violation: must follow {' → '.join(self.sequence)}"
 
 class TurnLimitRule(GuardRailRule):
-    """Enforce turn-based limits"""
+    """Enforce turn-based limits with absolute closure at max turns"""
     
     def __init__(self, min_turns: Optional[int] = None, max_turns: Optional[int] = None, 
                  closure_states: Optional[List[str]] = None, force_closure: bool = False):
@@ -57,19 +57,33 @@ class TurnLimitRule(GuardRailRule):
         self.force_closure = force_closure
     
     def check(self, current_state: str, dest_state: str, turn_counter: int, context: Dict[str, Any]) -> bool:
+        print(f"  🔒 TurnLimitRule check: turn {turn_counter}, {current_state} → {dest_state}")
+        
         # Early closure prevention
         if self.min_turns and turn_counter < self.min_turns and dest_state in self.closure_states:
+            print(f"    ❌ Too early for closure (turn {turn_counter} < {self.min_turns})")
             return False
         
-        # Force closure after max turns
-        if self.max_turns and turn_counter >= self.max_turns and self.force_closure:
-            if dest_state not in self.closure_states:
+        # ABSOLUTE CLOSURE ENFORCEMENT AT TURN 12+
+        if turn_counter >= 12:
+            if dest_state in self.closure_states:
+                print(f"    ✅ Closure allowed at turn {turn_counter}")
+                return True
+            else:
+                print(f"    ❌ ABSOLUTE BLOCK: Turn {turn_counter} >= 12, only closure allowed")
                 return False
         
+        # Normal force closure logic (turn 11)
+        if self.max_turns and turn_counter >= self.max_turns and self.force_closure:
+            if dest_state not in self.closure_states:
+                print(f"    ❌ Force closure enabled: only closure states allowed at turn {turn_counter}")
+                return False
+        
+        print(f"    ✅ Turn limit check passed")
         return True
     
     def get_reason(self) -> str:
-        return f"Turn limit rule violation (turn {self.min_turns}-{self.max_turns})"
+        return f"Turn limit rule: min {self.min_turns}, max {self.max_turns} turns"
 
 class ProgressionRule(GuardRailRule):
     """Force progression every N turns"""
@@ -110,9 +124,17 @@ class GoldenPathRule(GuardRailRule):
         self.derailing_start_turn = None
     
     def check(self, current_state: str, dest_state: str, turn_counter: int, context: Dict[str, Any]) -> bool:
+        print(f"  🎨 GoldenPathRule check: turn {turn_counter}, {current_state} → {dest_state}")
+        
+        # ALWAYS allow transitions to closure (override golden path rules near end)
+        if dest_state == 'onboarding_closure' and turn_counter >= 10:
+            print(f"    ✅ Closure override: allowing transition to closure at turn {turn_counter}")
+            return True
+        
         # Track derailing start
         if current_state in self.golden_path and dest_state in self.derailing_states:
             context['derailing_start_turn'] = turn_counter
+            print(f"    🔄 Starting derailing: {current_state} → {dest_state}")
             return True
         
         # Force return to golden path after max derailing time
@@ -121,14 +143,35 @@ class GoldenPathRule(GuardRailRule):
             derailing_duration = turn_counter - derailing_start
             
             if derailing_duration >= self.max_derailing_time:
-                # Only allow transitions back to golden path
-                if dest_state not in self.golden_path:
+                # Only allow transitions back to golden path or closure
+                if dest_state not in self.golden_path and dest_state != 'onboarding_closure':
+                    print(f"    ❌ Max derailing time exceeded: {derailing_duration} >= {self.max_derailing_time}")
                     return False
         
+        print(f"    ✅ Golden path check passed")
         return True
     
     def get_reason(self) -> str:
         return f"Golden path rule: max {self.max_derailing_time} turns derailing allowed"
+
+class AbsoluteClosureRule(GuardRailRule):
+    """Absolute rule: ALWAYS allow transitions to closure after turn 10"""
+    
+    def __init__(self, closure_state: str = 'onboarding_closure', min_turn_for_closure: int = 10):
+        self.closure_state = closure_state
+        self.min_turn_for_closure = min_turn_for_closure
+    
+    def check(self, current_state: str, dest_state: str, turn_counter: int, context: Dict[str, Any]) -> bool:
+        # This rule NEVER blocks transitions to closure after min turn
+        if dest_state == self.closure_state and turn_counter >= self.min_turn_for_closure:
+            print(f"  🆘 AbsoluteClosureRule: ALWAYS allowing closure at turn {turn_counter}")
+            return True
+        
+        # This rule doesn't care about other transitions
+        return True
+    
+    def get_reason(self) -> str:
+        return f"Absolute closure rule: closure always allowed after turn {self.min_turn_for_closure}"
 
 class GenericStateMachine:
     """Generic, configurable state machine for conversations"""
@@ -189,6 +232,14 @@ class GenericStateMachine:
             
             self.progression_rule = ProgressionRule(sequence, turns_per_state)
         
+        # Absolute closure rule (HIGHEST PRIORITY - add first)
+        closure_states = stage_config.get('closure_states', ['onboarding_closure'])
+        if closure_states:
+            self.guard_rails.append(AbsoluteClosureRule(
+                closure_state=closure_states[0],
+                min_turn_for_closure=10
+            ))
+        
         # Golden path rules
         if 'golden_path' in stage_config and 'derailing_states' in stage_config:
             golden_path = stage_config['golden_path']
@@ -212,10 +263,20 @@ class GenericStateMachine:
         """Check if transition is allowed by guard rails"""
         context = context or {}
         
-        for rule in self.guard_rails:
-            if not rule.check(self.state, dest_state, turn_counter, context):
-                return False, rule.get_reason()
+        print(f"🔍 GUARD RAIL CHECK: {self.state} → {dest_state} (turn {turn_counter})")
         
+        for i, rule in enumerate(self.guard_rails):
+            rule_name = type(rule).__name__
+            allowed = rule.check(self.state, dest_state, turn_counter, context)
+            
+            print(f"  Rule {i+1} ({rule_name}): {'✅ PASS' if allowed else '❌ BLOCK'}")
+            
+            if not allowed:
+                reason = rule.get_reason()
+                print(f"    ❌ BLOCKED BY: {reason}")
+                return False, reason
+        
+        print(f"  ✅ ALL GUARD RAILS PASSED")
         return True, "Transition allowed"
     
     def get_available_transitions(self, turn_counter: int = 0, 
@@ -253,18 +314,35 @@ class GenericStateMachine:
             return self.progression_rule.should_force_progression(self.state, turn_counter)
         return None
     
-    def execute_transition(self, trigger_name: str, reason: str = "No reason provided") -> bool:
+    def execute_transition(self, trigger_name: str, reason: str = "No reason provided", turn_counter: int = 0) -> bool:
         """Execute a state transition"""
         try:
-            # Check if trigger is valid
-            available = [t for t in self.get_available_transitions() if t['trigger'] == trigger_name and t['allowed']]
-            if not available:
-                print(f"❌ INVALID OR BLOCKED TRANSITION: {trigger_name} from {self.state}")
+            print(f"🚀 EXECUTING TRANSITION: {trigger_name} from {self.state}")
+            
+            # Get current available transitions with detailed info
+            available_transitions = self.get_available_transitions(turn_counter)
+            
+            print(f"📋 Available transitions for {self.state}:")
+            for t in available_transitions:
+                status = '✅' if t['allowed'] else '❌'
+                block_info = f" ({t['block_reason']})" if t['block_reason'] else ""
+                print(f"  {status} {t['trigger']} → {t['dest']}{block_info}")
+            
+            # Check if trigger is valid and allowed
+            matching_transition = next((t for t in available_transitions if t['trigger'] == trigger_name), None)
+            
+            if not matching_transition:
+                print(f"❌ TRANSITION NOT FOUND: {trigger_name} not in available transitions")
+                return False
+            
+            if not matching_transition['allowed']:
+                print(f"❌ TRANSITION BLOCKED: {trigger_name} - {matching_transition['block_reason']}")
                 return False
             
             old_state = self.state
             
             # Execute the trigger
+            print(f"⚙️ Calling trigger method: {trigger_name}")
             trigger_method = getattr(self, trigger_name)
             trigger_method()
             
@@ -272,6 +350,9 @@ class GenericStateMachine:
             print(f"📝 TRANSITION REASON: {reason}")
             return True
             
+        except AttributeError as e:
+            print(f"❌ TRIGGER METHOD NOT FOUND: {trigger_name} - {str(e)}")
+            return False
         except Exception as e:
             print(f"❌ STATE TRANSITION FAILED: {trigger_name} - {str(e)}")
             return False

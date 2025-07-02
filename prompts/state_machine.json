@@ -126,6 +126,11 @@
             "trigger": "finish_onboarding",
             "source": "conversation_repair",
             "dest": "onboarding_closure"
+        },
+        {
+            "trigger": "emergency_closure",
+            "source": ["init_greeting", "engagement_hook", "stimulus_present", "reaction_wait", "explore_path", "confirm_skepticism", "comfort_user", "conversation_repair", "critical_thinking"],
+            "dest": "onboarding_closure"
         }
     ],
     "state_system_prompts": {
@@ -213,7 +218,8 @@
         "move_to_closure": "Golden path: Ready to complete onboarding",
         "need_repair": "Emergency: Conversation needs repair/reset",
         "restart_engagement": "Recovery: Restart engagement from repair",
-        "finish_onboarding": "Exit: Complete onboarding process"
+        "finish_onboarding": "Exit: Complete onboarding process",
+        "emergency_closure": "Emergency: Force end onboarding at turn 12+"
     },
     "state_examples": {
         "init_greeting": [

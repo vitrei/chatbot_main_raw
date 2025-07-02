@@ -65,38 +65,8 @@ class ConversationalAgentSimple(ConversationalAgent):
             return self.state.state_machine.get_current_state()
         return "init_greeting"  # fallback to initial state
 
-    def get_current_system_prompt(self):
-        """Build system prompt including current state-specific prompt and guiding instructions"""
-        base_system_prompt = " ".join(self.state.prompts['system_prompt'])
-        
-        # Get current state from state machine (not from guiding instruction)
-        current_state = self.get_current_state_from_state_machine()
-        
-        # Get state-specific system prompt
-        state_prompts = self.state.prompts.get('state_system_prompts', {})
-        state_specific_prompt = state_prompts.get(current_state, [])
-        
-        # Get current guiding instruction (behavioral guidance)
-        behavioral_instruction = ""
-        if hasattr(self.state, 'current_guiding_instruction'):
-            behavioral_instruction = self.state.current_guiding_instruction
-        
-        # Build comprehensive system prompt with STRONG emphasis on state instructions
-        prompt_parts = [base_system_prompt]
-        
-        if state_specific_prompt:
-            state_prompt_text = " ".join(state_specific_prompt)
-            prompt_parts.append(f"🎭 DREHBUCH/PFLICHTAUFGABE ({current_state}): {state_prompt_text}")
-            prompt_parts.append("WICHTIG: Du MUSST diese Drehbuch-Anweisungen befolgen! Ignoriere nicht was der User sagt, aber folge primär dem Drehbuch!")
-        
-        if behavioral_instruction:
-            prompt_parts.append(f"🎪 STIL UND VERHALTEN: {behavioral_instruction}")
-        
-        # Add stronger instruction hierarchy
-        prompt_parts.append("PRIORITÄTEN: 1) Befolge das DREHBUCH, 2) Berücksichtige User-Input, 3) Halte den vorgeschriebenen STIL bei")
-        
-        combined_prompt = "\n\n".join(prompt_parts)
-        return f"{combined_prompt}\n\n{{user_profile_context}}"
+    # DEPRECATED: Replaced by build_dynamic_prompt
+    # def get_current_system_prompt(self): ...
 
     def get_state_examples(self, current_state):
         """Get few-shot examples for current state (prioritize injected from state machine)"""
@@ -125,194 +95,106 @@ class ConversationalAgentSimple(ConversationalAgent):
             return []
 
     def build_dynamic_prompt(self, current_state):
-        """Build dynamic prompt with STRONG state-specific enforcement"""
+        """Master prompt builder - single source of truth for all conversation prompts"""
         try:
-            # Get state-specific instructions and examples (prioritize injected from state machine)
-            if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
-                # Use injected state machine prompts
-                state_instructions = self.state.current_state_prompts
-                print(f"🔄 Using injected state machine prompts for {current_state}")
-            else:
-                # Fallback to prompts from prompts_fake_news.json (legacy)
-                state_prompts = self.state.prompts.get('state_system_prompts', {})
-                state_instructions = state_prompts.get(current_state, [])
-                print(f"⚠️ Using legacy prompts for {current_state}")
-            examples = self.get_state_examples(current_state)
+            print(f"🎨 BUILDING DYNAMIC PROMPT for state: {current_state}")
             
-            # Get behavioral guidance
-            behavioral_instruction = ""
+            # === 1. BASE SYSTEM PROMPT (from prompts_fake_news.json) ===
+            base_system_prompt = " ".join(self.state.prompts['system_prompt'])
+            print(f"  ✅ Base system prompt loaded")
+            
+            # === 2. STATE-SPECIFIC INSTRUCTIONS (from state_machine.json) ===
+            state_instructions = []
+            if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
+                # Use injected state machine prompts (preferred)
+                state_instructions = self.state.current_state_prompts
+                print(f"  ✅ State instructions from state machine: {len(state_instructions)} items")
+            else:
+                print(f"  ⚠️ No state machine prompts available for {current_state}")
+            
+            # === 3. BEHAVIORAL GUIDANCE (from guiding instructions) ===
+            behavioral_guidance = "Natürlich und locker sprechen."
             if hasattr(self.state, 'current_guiding_instruction'):
-                # Extract only the behavioral part (before "INHALT/PHASE:")
+                # Extract behavioral part only
                 full_instruction = self.state.current_guiding_instruction
                 if "VERHALTEN:" in full_instruction:
                     behavioral_part = full_instruction.split("INHALT/PHASE:")[0].replace("VERHALTEN:", "").strip()
-                    behavioral_instruction = behavioral_part
+                    if behavioral_part:
+                        behavioral_guidance = behavioral_part
+                print(f"  ✅ Behavioral guidance: {behavioral_guidance[:50]}...")
             
-            # Build DIRECTIVE system prompt
-            base_prompt = " ".join(self.state.prompts['system_prompt'])
+            # === 4. FEW-SHOT EXAMPLES (from state_machine.json) ===
+            examples = self.get_state_examples(current_state)
+            print(f"  ✅ Examples loaded: {len(examples)} examples")
             
-            # Create VERY directive system prompt
-            system_prompt_parts = [
-                base_prompt,
+            # === BUILD COMPREHENSIVE SYSTEM PROMPT ===
+            system_prompt_components = [
+                "=== GRUNDREGELN ===",
+                base_system_prompt,
                 "",
-                "🎭 DEINE AKTUELLE SZENE/AUFGABE:",
-                f"State: {current_state}",
-                "Du MUSST folgende Aufgabe erfüllen:",
+                f"=== AKTUELLE SZENE: {current_state.upper()} ===",
+                "Du befindest dich gerade in dieser spezifischen Gesprächsphase:"
             ]
             
+            # Add state-specific instructions
             if state_instructions:
-                for instruction in state_instructions:
-                    system_prompt_parts.append(f"- {instruction}")
+                system_prompt_components.append("AUFGABEN FÜR DIESE SZENE:")
+                for i, instruction in enumerate(state_instructions, 1):
+                    system_prompt_components.append(f"{i}. {instruction}")
+            else:
+                system_prompt_components.append("[Keine spezifischen Anweisungen für diese Szene]")
             
-            system_prompt_parts.extend([
+            system_prompt_components.extend([
                 "",
-                "🎪 WIE DU DICH VERHALTEN SOLLST:",
-                behavioral_instruction if behavioral_instruction else "Natürlich und locker sprechen.",
+                "=== VERHALTEN UND STIL ===",
+                behavioral_guidance,
                 "",
-                "⚠️ WICHTIG: Du befolgst ZUERST deine Szenen-Aufgabe, dann berücksichtigst du den User-Input!",
-                "Ignoriere NICHT was der User sagt, aber deine Haupt-Priorität ist es, deine Szenen-Aufgabe zu erfüllen!",
-                "",
-                "{user_profile_context}"
+                "=== PRIORITÄTEN ===",
+                "1. Befolge deine Szenen-Aufgaben",
+                "2. Reagiere angemessen auf User-Input", 
+                "3. Halte den vorgegebenen Stil bei",
+                "4. Bewege das Gespräch zielgerichtet voran"
             ])
             
-            system_prompt = "\n".join(system_prompt_parts)
+            system_prompt = "\n".join(system_prompt_components)
             
-            # Build messages with examples
+            # === BUILD COMPLETE MESSAGE CHAIN ===
             messages = [("system", system_prompt)]
             
-            # Add few-shot examples to REINFORCE the correct behavior
+            # Add few-shot examples for reinforcement
             if examples:
                 messages.extend(examples)
-                # print(f"🎭 ADDED {len(examples)} REINFORCEMENT EXAMPLES")
+                print(f"  ✅ Added {len(examples)} few-shot examples")
             
-            # Add chat history and current input
+            # Add chat history and current input placeholders
             messages.extend([
                 MessagesPlaceholder("chat_history"),
                 ("human", "{input}")
             ])
             
+            print(f"  ✅ Dynamic prompt built successfully with {len(messages)} components")
             return ChatPromptTemplate.from_messages(messages)
             
         except Exception as e:
             print(f"❌ ERROR building dynamic prompt: {e}")
-            # Fallback
+            # Minimal fallback
+            fallback_prompt = " ".join(self.state.prompts['system_prompt'])
             return ChatPromptTemplate.from_messages([
-                ("system", self.get_current_system_prompt()),
+                ("system", fallback_prompt),
                 MessagesPlaceholder("chat_history"),
                 ("human", "{input}")
             ])
     
-    def format_user_profile_for_llm(self) -> str:
-        """
-        Format user profile for inclusion in LLM context - FIXED VERSION
-        """
-        if not hasattr(self.state, 'user_profile') or not self.state.user_profile:
-            return ""
-        
-        profile = self.state.user_profile
-        
-        profile_info = []
-        instructions = []
-        
-        # Safe age handling with type conversion
-        age = profile.get('age')
-        if age:
-            try:
-                age_int = int(age)  # Convert to int if it's a string
-                profile_info.append(f"{age_int}J")
-            except (ValueError, TypeError):
-                # If conversion fails, just use the original value as string
-                profile_info.append(f"{age}J")
-                age_int = None  # Set to None for later comparisons
-        else:
-            age_int = None
-            
-        if profile.get('school_type'):
-            profile_info.append(f"{profile['school_type']}")
-        if profile.get('region'):
-            profile_info.append(f"{profile['region']}")
-            
-        fake_news_skill = profile.get('fake_news_skill')
-        if fake_news_skill:
-            if fake_news_skill == 'master':
-                profile_info.append("FN:Experte")
-                instructions.append("kritisch fragen")
-            elif fake_news_skill == 'low':
-                profile_info.append("FN:Anfänger")
-                instructions.append("einfach erklären")
-            else:
-                profile_info.append(f"FN:{fake_news_skill}")
-        
-        if profile.get('attention_span') == 'short':
-            profile_info.append("Aufm:kurz")
-            instructions.append("max 150 Zeichen")
-        
-        current_mood = profile.get('current_mood')
-        if current_mood == 'mad':
-            profile_info.append("Stimmung:schlecht")
-            instructions.append("einfühlsam sein")
-        elif current_mood == 'enthusiastic':
-            profile_info.append("Stimmung:motiviert")
-        
-        if profile.get('interaction_style'):
-            style = profile['interaction_style']
-            if style == 'direct':
-                profile_info.append("Stil:direkt")
-                instructions.append("klar sprechen")
-            elif style == 'gentle':
-                profile_info.append("Stil:sanft")
-                instructions.append("vorsichtig sein")
-        
-        if profile.get('interests'):
-            interests = profile['interests'][:2]  # Nur erste 2
-            profile_info.append(f"Interesse:{','.join(interests)}")
-        
-        # Safe age comparison using converted integer
-        if age_int is not None and age_int < 16:
-            instructions.append("jugendlich sprechen")
-            
-        if fake_news_skill == 'master':
-            instructions.append("nicht leicht zufriedenstellen")
-        elif fake_news_skill == 'low':
-            instructions.append("geduldig bleiben")
-            
-        if current_mood == 'mad':
-            instructions.append("Konfrontation vermeiden")
-            
-        if profile.get('attention_span') == 'short':
-            instructions.append("direkt zum Punkt")
-        
-        output_parts = []
-        
-        if profile_info:
-            output_parts.append(f"User: {' | '.join(profile_info)}")
-        
-        if instructions:
-            output_parts.append(f"Anpassungen: {', '.join(instructions)}")
-        
-        return " || ".join(output_parts) if output_parts else ""
+    # TODO: Will be integrated into build_dynamic_prompt later
+    # def format_user_profile_for_llm(self): ...
 
-    # def analyze_response_compliance(self, current_state, response_text):
-    #     """Analyze if the response follows state instructions"""
-    #     state_keywords = {
-    #         'engagement_hook': ['video', 'sieht', 'ähnlich', 'komisch', 'weird'],
-    #         'stimulus_present': ['tanzen', 'schule', 'ernst', 'untypisch', 'peinlich', 'überraschend'],
-    #         'reaction_wait': ['gefühlt', 'weird', 'reaktion'],
-    #         'explore_path': ['glaubwürdig', 'dagegen', 'sprechen'],
-    #         'comfort_user': ['entspann', 'video gibt es nicht', 'demonstration'],
-    #         'confirm_skepticism': ['gut beobachtet', 'skeptisch', 'wichtig']
-    #     }
-        
-    #     keywords = state_keywords.get(current_state, [])
-    #     matches = sum(1 for keyword in keywords if keyword.lower() in response_text.lower())
-    #     compliance_score = matches / len(keywords) if keywords else 0
-        
-    #     return f"{compliance_score:.1%} (matched {matches}/{len(keywords)} keywords)"
+    # TODO: Could be re-implemented for quality assurance later
     
     async def proactive_instruct(self):
         proactive_prompt = self.state.prompts['proactive_prompt']
 
-        user_profile_context = self.format_user_profile_for_llm()
+        # TODO: User profile context will be integrated into build_dynamic_prompt later
+        user_profile_context = ""  # Removed for now
 
         llm_answer_text = ""
         async for chunk in self.chat_chain.astream({
@@ -390,7 +272,8 @@ class ConversationalAgentSimple(ConversationalAgent):
                 history_messages_key="chat_history"
             )
             
-            user_profile_context = self.format_user_profile_for_llm()
+            # TODO: User profile context will be integrated into build_dynamic_prompt later
+            user_profile_context = ""  # Removed for now
             
             # Debug output showing state machine context
             if hasattr(self.state, 'state_machine') and self.state.state_machine:
@@ -416,8 +299,7 @@ class ConversationalAgentSimple(ConversationalAgent):
             
             llm_answer_text = ""
             async for chunk in chat_chain.astream({
-                "input": self.state.instruction,
-                "user_profile_context": user_profile_context
+                "input": self.state.instruction
             }, config=self.model_config):
                 llm_answer_text += chunk.content
                 
@@ -440,7 +322,8 @@ class ConversationalAgentSimple(ConversationalAgent):
     async def proactive_stream(self): 
         proactive_prompt = self.state.prompts['proactive_prompt']
         
-        user_profile_context = self.format_user_profile_for_llm()
+        # TODO: User profile context will be integrated into build_dynamic_prompt later
+        user_profile_context = ""  # Removed for now
         
         async for chunk in self.chat_chain.astream({
             "input": proactive_prompt,
@@ -482,11 +365,12 @@ class ConversationalAgentSimple(ConversationalAgent):
                 history_messages_key="chat_history"
             )
             
-            user_profile_context = self.format_user_profile_for_llm()
+            # TODO: User profile context will be integrated into build_dynamic_prompt later
+            user_profile_context = ""  # Removed for now
             
             async for chunk in chat_chain.astream({
                 "input": self.state.instruction,
-                "user_profile_context": user_profile_context
+                # "user_profile_context": user_profile_context  # Removed for now
             }, config=self.model_config):
                 yield chunk.content
         else:
