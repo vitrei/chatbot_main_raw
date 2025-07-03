@@ -13,6 +13,7 @@ class DummyProcessing(BasePostProcessor):
         self.timeout = timeout
     
     def invoke(self, agent_state, llm_answer):
+        print("=== POST PROCESSING SERVICE ===")
         emoji_pattern = re.compile(r"[\U00010000-\U0010FFFF]", flags=re.UNICODE)
         content = emoji_pattern.sub("", llm_answer.content)
         content = content.replace('\n', ' ').replace('\r', '')
@@ -82,9 +83,9 @@ class DummyProcessing(BasePostProcessor):
                             "turns_remaining": max(0, max_turns - turn_counter),
                             "golden_path_position": f"{golden_path_position + 1}/{len(golden_path)}" if golden_path_position >= 0 else "off-path",
                             "sequence_position": f"{sequence_position + 1}/{len(mandatory_sequence)}" if sequence_position >= 0 else "post-sequence",
-                            "total_transitions": len(available_transitions),
-                            "allowed_transitions": len(allowed_transitions),
-                            "blocked_transitions": len(blocked_transitions),
+                            # "total_transitions": [{"trigger": t["trigger"], "dest": t["dest"], "allowed": t.get("allowed", True)} for t in available_transitions],
+                            "allowed_transitions": [{"trigger": t["trigger"], "dest": t["dest"]} for t in allowed_transitions],
+                            "blocked_transitions": [{"trigger": t["trigger"], "dest": t["dest"], "reason": t.get("block_reason", "unknown")} for t in blocked_transitions],
                             "forced_transition": forced_transition,
                             "closure_approaching": turn_counter >= 11,
                             "mandatory_closure": turn_counter >= 12
@@ -203,7 +204,7 @@ class DummyProcessing(BasePostProcessor):
                     "turns_remaining": stage_data.get("turns_remaining", 0),
                     "golden_path_position": stage_data.get("golden_path_position", "unknown"),
                     "sequence_position": stage_data.get("sequence_position", "unknown"),
-                    "total_transitions": stage_data.get("total_transitions", 0),
+                    # "total_transitions": stage_data.get("total_transitions", 0),
                     "allowed_transitions": stage_data.get("allowed_transitions", 0),
                     "blocked_transitions": stage_data.get("blocked_transitions", 0),
                     "forced_transition": stage_data.get("forced_transition"),

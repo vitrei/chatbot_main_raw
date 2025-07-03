@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema import HumanMessage, AIMessage
 from langchain_core.messages.ai import AIMessageChunk
@@ -19,9 +20,9 @@ class LLMDecisionAgent(BaseDecisionAgent):
         self.rule_engine = None
         super().__init__()
         
-        # Balanced decision agent prompt - structured but compact
+        # ULTRA-COMPACT decision agent prompt for speed  
         decision_agent_prompt = """
-Du bist Decision Agent für Fake-News-Aufklärung.
+Du bist Decision Agent. SCHNELL antworten!
 
 === KONTEXT ===
 STATE: {current_state} | STAGE: {current_stage} | TURN: {turn_counter} ({stage_turn_info})
@@ -240,7 +241,7 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
         if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
             state_machine = create_state_machine_from_prompts(agent_state.prompts)
             agent_state.state_machine = state_machine
-            print(f"🎰 State Machine added to AgentState: {state_machine.get_current_state() if state_machine else 'Failed'}")
+            # print(f"🎰 State Machine added to AgentState: {state_machine.get_current_state() if state_machine else 'Failed'}")
         
         return agent_state
     
@@ -340,7 +341,7 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
                    (source == '*'):
                     current_state_transitions.append(t)
             
-            print(f"🔄 AVAILABLE TRANSITIONS FOR {current_state}: {[t['trigger'] for t in current_state_transitions]}")
+            # Available transitions computed
             return current_state_transitions
             
         except Exception as e:
@@ -389,6 +390,19 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
             transition_text.append(f"• {t['trigger']}: {t.get('description', 'No description')} → {t['dest']}")
         
         return '\n'.join(transition_text)
+    
+    def extract_trigger_fast(self, response_content):
+        """ULTRA-FAST trigger extraction - minimal parsing"""
+        try:
+            # Quick regex for trigger only
+            trigger_match = re.search(r'"trigger":\s*"([^"]+)"', response_content)
+            if trigger_match:
+                return {"trigger": trigger_match.group(1)}
+            
+            # Fallback to full parsing if needed
+            return self.extract_and_parse_json(response_content)
+        except:
+            return {"trigger": "emergency_closure"}
     
     def extract_and_parse_json(self, response_content):
         """Extract and parse JSON from LLM response - robust version"""
@@ -619,8 +633,7 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
             return current_state
 
     def next_action(self, agent_state: AgentState):
-        print(f"🔢 TURN COUNTER: {agent_state.conversation_turn_counter}")
-        print(f"👤 USER ID: {agent_state.user_id}")
+        print(f"Turn: {agent_state.conversation_turn_counter}, User: {agent_state.user_id}")
         
         # Ensure state machine is initialized
         agent_state = self.add_state_machine_to_agent_state(agent_state)
@@ -628,19 +641,6 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
         # Load comprehensive AgentState information
         agent_context = self.load_agent_state_context(agent_state)
         current_state = agent_context['current_state']
-        
-        print(f"🗨️ LAST USER MESSAGE: '{agent_context['last_user_message']}'")
-        print(f"📊 USER PROFILE: {agent_context['user_profile']}")
-        print(f"📝 AGENT STATE INSTRUCTION: '{agent_state.instruction}'")
-        print(f"💬 CHAT HISTORY KEYS: {list(agent_state.chat_history.keys()) if agent_state.chat_history else 'None'}")
-        
-        # Debug chat history content
-        if agent_state.chat_history:
-            for session_id, history in agent_state.chat_history.items():
-                print(f"📜 SESSION {session_id}: {len(history.messages) if hasattr(history, 'messages') else 0} messages")
-                if hasattr(history, 'messages') and history.messages:
-                    for i, msg in enumerate(history.messages[-3:]):  # Show last 3 messages
-                        print(f"   {i}: {type(msg).__name__} - {msg.content[:50] if hasattr(msg, 'content') else 'No content'}...")
         
         # Get available transitions for current state
         available_transitions = self.get_current_state_transitions(agent_state)
@@ -655,6 +655,10 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
                 if success:
                     current_state = agent_state.state_machine.get_current_state()
                     print(f"✅ FORCED TRANSITION EXECUTED: {forced_transition}")
+                    # CRITICAL FIX: Reload transitions after forced transition
+                    available_transitions = self.get_current_state_transitions(agent_state)
+                    transition_logic = self.get_transition_decision_logic(agent_state, current_state)
+                    print(f"🔄 RELOADED TRANSITIONS FOR NEW STATE: {current_state}")
         
         # Prepare FAST LLM prompt data - compact versions for speed
         current_stage = agent_state.state_machine.current_stage if hasattr(agent_state, 'state_machine') and agent_state.state_machine else 'unknown'
@@ -675,95 +679,59 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
             "transition_logic": transition_logic
         }
         
-        # LLM call to decide on transition
-        print(f"🤖 MAKING LLM DECISION CALL for state: {current_state}")
-        print(f"📝 PROMPT DATA: {prompt_data}")
+        # LLM call to decide on transition - FAST MODE
+        print("=== LLM CALL ===")
+        print(f"{current_state}")
         
         try:
-            import time
             start_time = time.time()
             response = self.chain.invoke(prompt_data)
             llm_time = time.time() - start_time
-            print(f"🤖 LLM RESPONSE ({llm_time:.2f}s): {response.content}")
             
-            llm_decision = self.extract_and_parse_json(response.content)
-            print(f"🧠 LLM DECISION PARSED: {llm_decision}")
-            
-            # Enhanced logging for decision quality
-            if 'user_intent' in llm_decision:
-                print(f"👤 USER INTENT: {llm_decision['user_intent']}")
-            if 'pedagogical_goal' in llm_decision:
-                print(f"🎓 PEDAGOGICAL GOAL: {llm_decision['pedagogical_goal']}")
+            # FAST JSON parsing - just get trigger
+            llm_decision = self.extract_trigger_fast(response.content)
+            print(f"⚡ LLM: {llm_time:.2f}s")
             
             # Execute state transition (LLM MUST always choose one)
             trigger = llm_decision.get('trigger')
-            reason = llm_decision.get('reason', 'LLM decision')
             
             if not trigger:
-                print(f"❌ LLM FAILED TO CHOOSE TRANSITION - using fallback")
                 # Fallback: choose first allowed transition
                 allowed_transitions_fallback = [t for t in available_transitions if t.get('allowed', True)]
                 if allowed_transitions_fallback:
                     trigger = allowed_transitions_fallback[0]['trigger']
-                    reason = "Fallback - LLM failed to choose"
-                    print(f"🔄 LLM FAILED FALLBACK: {trigger}")
-                else:
-                    print(f"❌ NO ALLOWED TRANSITIONS FOR LLM FALLBACK")
+                    print(f"🔄 FALLBACK → {trigger}")
             
             if trigger:
-                print(f"🔄 LLM RECOMMENDS TRANSITION: {trigger} - {reason}")
+                print(f"🔄 LLM → {trigger}")
                 
                 if hasattr(agent_state, 'state_machine') and agent_state.state_machine:
-                    # Check if the chosen transition is allowed by guard rails
+                    # Quick validation
                     allowed_transitions = [t for t in available_transitions if t.get('allowed', True)]
                     chosen_transition = next((t for t in allowed_transitions if t['trigger'] == trigger), None)
                     
-                    print(f"🔍 TRANSITION ANALYSIS:")
-                    print(f"  LLM chose: {trigger}")
-                    print(f"  Total available: {len(available_transitions)}")
-                    print(f"  Guard rail allowed: {len(allowed_transitions)}")
-                    print(f"  LLM choice in allowed: {'Yes' if chosen_transition else 'No'}")
-                    
                     if chosen_transition:
-                        # LLM choice is allowed - execute it
-                        print(f"✅ LLM CHOICE IS ALLOWED: {trigger}")
-                        success = agent_state.state_machine.execute_transition(trigger, reason, agent_state.conversation_turn_counter)
+                        # Execute allowed transition
+                        success = agent_state.state_machine.execute_transition(trigger, "LLM decision", agent_state.conversation_turn_counter)
                         if success:
-                            print(f"✅ STATE TRANSITION EXECUTED: {trigger} - {reason}")
-                            
-                            # Update current_state to reflect any stage changes (inter-stage transitions)
                             current_state = agent_state.state_machine.get_current_state()
-                            print(f"🔍 UPDATED CURRENT STATE: {current_state}")
-                            print(f"🔍 UPDATED CURRENT STAGE: {agent_state.state_machine.current_stage}")
-                        else:
-                            print(f"❌ STATE TRANSITION FAILED: {trigger} (execution error)")
                     else:
-                        # LLM choice is blocked by guard rails - use fallback
-                        print(f"🚧 GUARD RAIL BLOCKED LLM CHOICE: {trigger}")
+                        # Handle blocked transitions
+                        current_stage = agent_state.state_machine.current_stage
                         
-                        # Find specific block reason
-                        blocked_transition = next((t for t in available_transitions if t['trigger'] == trigger), None)
-                        if blocked_transition:
-                            print(f"    Block reason: {blocked_transition.get('block_reason', 'Unknown')}")
+                        # Special handling for stage_selection
+                        if current_stage == 'stage_selection':
+                            return NextActionDecision(
+                                type=NextActionDecisionType.GENERATE_ANSWER, 
+                                action="explain_unavailable_stage",
+                                payload={"blocked_stage": trigger}
+                            )
                         
+                        # Fallback for other stages
                         if allowed_transitions:
                             fallback_trigger = allowed_transitions[0]['trigger']
-                            fallback_reason = f"Guard rail fallback: {trigger} blocked, using {fallback_trigger}"
-                            print(f"🔄 SELECTING FALLBACK: {fallback_trigger}")
-                            
-                            success = agent_state.state_machine.execute_transition(fallback_trigger, fallback_reason, agent_state.conversation_turn_counter)
-                            if success:
-                                print(f"✅ FALLBACK TRANSITION EXECUTED: {fallback_trigger}")
-                                current_state = agent_state.state_machine.get_current_state()
-                                # Update reason for consistency
-                                reason = fallback_reason
-                            else:
-                                print(f"❌ FALLBACK TRANSITION FAILED: {fallback_trigger} (execution error)")
-                        else:
-                            print(f"❌ NO ALLOWED TRANSITIONS AVAILABLE from {current_state}")
-                            print(f"    All transitions blocked by guard rails:")
-                            for t in available_transitions:
-                                print(f"      {t['trigger']}: {t.get('block_reason', 'Unknown reason')}")
+                            agent_state.state_machine.execute_transition(fallback_trigger, "Fallback", agent_state.conversation_turn_counter)
+                            current_state = agent_state.state_machine.get_current_state()
             else:
                 print(f"🚫 NO TRANSITION POSSIBLE for {current_state}")
             
@@ -800,8 +768,8 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
             current_state_prompts = state_prompts.get(current_state, [])
             current_state_examples = state_examples.get(current_state, [])
             
-            print(f"🎭 LOADED STATE PROMPTS: {len(current_state_prompts)} for {current_state}")
-            print(f"📚 LOADED STATE EXAMPLES: {len(current_state_examples)} for {current_state}")
+            # print(f"🎭 LOADED STATE PROMPTS: {len(current_state_prompts)} for {current_state}")
+            # print(f"📚 LOADED STATE EXAMPLES: {len(current_state_examples)} for {current_state}")
         
         # Return PROMPT_ADAPTION with all context
         return NextActionDecision(

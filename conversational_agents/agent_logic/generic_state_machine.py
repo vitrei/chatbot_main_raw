@@ -66,35 +66,24 @@ class TurnLimitRule(GuardRailRule):
         current_stage = context.get('current_stage', 'onboarding')
         
         if self.stage_relative and self.max_turns_in_stage:
-            print(f"  🔒 TurnLimitRule (stage-relative): turn {turn_counter} (stage: {turns_in_stage}/{self.max_turns_in_stage}), {current_state} → {dest_state}")
-            
             # Stage-relative logic: only check turns within current stage
             if turns_in_stage > self.max_turns_in_stage and dest_state in self.closure_states:
-                print(f"    ❌ Stage turn limit exceeded: {turns_in_stage} > {self.max_turns_in_stage}")
                 return False
-            
-            print(f"    ✅ Stage-relative turn limit check passed")
             return True
         else:
             # Original absolute turn logic (only for onboarding stage)
-            print(f"  🔒 TurnLimitRule (absolute): turn {turn_counter}, {current_state} → {dest_state}")
-            
             # Early closure prevention
             if self.min_turns and turn_counter < self.min_turns and dest_state in self.closure_states:
-                print(f"    ❌ Too early for closure (turn {turn_counter} < {self.min_turns})")
                 return False
             
             # ABSOLUTE CLOSURE ENFORCEMENT AT TURN 12+ (ONLY for onboarding stage)
             if turn_counter >= 12 and self.closure_states and current_stage == 'onboarding':
                 if dest_state in self.closure_states:
-                    print(f"    ✅ Closure allowed at turn {turn_counter}")
                     return True
                 # EXCEPTION: Allow inter-stage transitions even at turn 12+
                 elif dest_state in ['stage_selection', 'content_intro_pt', 'content_intro_ps']:
-                    print(f"    ✅ Inter-stage transition allowed at turn {turn_counter}: {dest_state}")
                     return True
                 else:
-                    print(f"    ❌ ABSOLUTE BLOCK: Turn {turn_counter} >= 12, only closure/inter-stage allowed (onboarding stage)")
                     return False
             
             # Normal force closure logic
@@ -103,7 +92,7 @@ class TurnLimitRule(GuardRailRule):
                     print(f"    ❌ Force closure enabled: only closure states allowed at turn {turn_counter}")
                     return False
             
-            print(f"    ✅ Turn limit check passed")
+            # print(f"    ✅ Turn limit check passed")
             return True
     
     def get_reason(self) -> str:
@@ -148,7 +137,7 @@ class GoldenPathRule(GuardRailRule):
         self.derailing_start_turn = None
     
     def check(self, current_state: str, dest_state: str, turn_counter: int, context: Dict[str, Any]) -> bool:
-        print(f"  🎨 GoldenPathRule check: turn {turn_counter}, {current_state} → {dest_state}")
+        # print(f"  🎨 GoldenPathRule check: turn {turn_counter}, {current_state} → {dest_state}")
         
         # ALWAYS allow transitions to closure (override golden path rules near end)
         if dest_state == 'onboarding_closure' and turn_counter >= 10:
@@ -172,7 +161,7 @@ class GoldenPathRule(GuardRailRule):
                     print(f"    ❌ Max derailing time exceeded: {derailing_duration} >= {self.max_derailing_time}")
                     return False
         
-        print(f"    ✅ Golden path check passed")
+        # print(f"    ✅ Golden path check passed")
         return True
     
     def get_reason(self) -> str:
@@ -201,11 +190,16 @@ class GenericStateMachine:
     """Generic, configurable state machine for conversations"""
     
     def __init__(self, config: Dict[str, Any]):
+        print("=== STATE MACHINE SERVICE ===")
         self.config = config
         self.guard_rails: List[GuardRailRule] = []
         self.turn_counter = 0
         self.stage_start_turn = 0  # Track when current stage started
         self.completed_stages: List[str] = []  # Track completed content stages
+        
+        # PERFORMANCE: Cache guard rail results
+        self._transition_cache = {}
+        self._last_cache_turn = -1
         
         # Extract basic configuration
         self.stages = config.get('stages', {})
@@ -228,9 +222,9 @@ class GenericStateMachine:
             transitions=self.transitions_config
         )
         
-        print(f"🎰 GENERIC STATE MACHINE INITIALIZED: {self.initial_state}")
-        print(f"🎭 CURRENT STAGE: {self.current_stage}")
-        print(f"📋 STAGE STATES: {self.states}")
+        # print(f"🎰 GENERIC STATE MACHINE INITIALIZED: {self.initial_state}")
+        # print(f"🎭 CURRENT STAGE: {self.current_stage}")
+        # print(f"📋 STAGE STATES: {self.states}")
     
     def _setup_guard_rails(self):
         """Setup guard rails from configuration"""
@@ -303,43 +297,64 @@ class GenericStateMachine:
         context['stage_start_turn'] = getattr(self, 'stage_start_turn', 0)
         context['current_stage'] = self.current_stage
         
-        print(f"🔍 GUARD RAIL CHECK: {self.state} → {dest_state} (turn {turn_counter})")
-        
-        for i, rule in enumerate(self.guard_rails):
-            rule_name = type(rule).__name__
-            allowed = rule.check(self.state, dest_state, turn_counter, context)
-            
-            print(f"  Rule {i+1} ({rule_name}): {'✅ PASS' if allowed else '❌ BLOCK'}")
-            
-            if not allowed:
-                reason = rule.get_reason()
-                print(f"    ❌ BLOCKED BY: {reason}")
-                return False, reason
-        
-        print(f"  ✅ ALL GUARD RAILS PASSED")
+        # Check guard rails (minimal logging)
+        for rule in self.guard_rails:
+            if not rule.check(self.state, dest_state, turn_counter, context):
+                print(f"🚫 BLOCKED: {self.state} → {dest_state} ({rule.get_reason()})")
+                return False, rule.get_reason()
         return True, "Transition allowed"
     
     def get_available_transitions(self, turn_counter: int = 0, 
                                 context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Get available transitions filtered by guard rails"""
+        """Get available transitions filtered by guard rails - WITH CACHING"""
+        
+        # PERFORMANCE: Use cache if same turn and state
+        cache_key = f"{self.state}_{turn_counter}_{self.current_stage}"
+        if cache_key in self._transition_cache and turn_counter == self._last_cache_turn:
+            return self._transition_cache[cache_key]
         available_triggers = []
         
         for transition in self.transitions_config:
             source = transition['source']
             if source == '*' or source == self.state or (isinstance(source, list) and self.state in source):
                 dest_state = transition['dest']
+                trigger = transition['trigger']
+                
+                # Check if this transition leads to a completed stage (and block it)
+                stage_blocked = False
+                stage_block_reason = None
+                
+                if self.current_stage == 'stage_selection':
+                    # Get target stage from inter_stage_transitions config
+                    inter_stage_config = self.config.get('inter_stage_transitions', {})
+                    stage_selection_config = inter_stage_config.get('stage_selection', {})
+                    
+                    target_stage = stage_selection_config.get(trigger)
+                    if target_stage and target_stage.startswith('content_') and target_stage in self.completed_stages:
+                        stage_blocked = True
+                        stage_block_reason = f"Stage {target_stage} already completed in this session"
+                        # Block completed stages silently
                 
                 # Check guard rails
                 allowed, reason = self.is_transition_allowed(dest_state, turn_counter, context)
                 
+                # Combine stage blocking with guard rail blocking
+                if stage_blocked:
+                    allowed = False
+                    reason = stage_block_reason
+                
                 available_triggers.append({
-                    'trigger': transition['trigger'],
+                    'trigger': trigger,
                     'source': source,
                     'dest': dest_state,
-                    'description': self.get_trigger_description(transition['trigger']),
+                    'description': self.get_trigger_description(trigger),
                     'allowed': allowed,
                     'block_reason': reason if not allowed else None
                 })
+        
+        # PERFORMANCE: Cache results
+        self._transition_cache[cache_key] = available_triggers
+        self._last_cache_turn = turn_counter
         
         return available_triggers
     
@@ -357,7 +372,7 @@ class GenericStateMachine:
     def execute_transition(self, trigger_name: str, reason: str = "No reason provided", turn_counter: int = 0) -> bool:
         """Execute a state transition"""
         try:
-            print(f"🚀 EXECUTING TRANSITION: {trigger_name} from {self.state}")
+            # print(f"🚀 EXECUTING TRANSITION: {trigger_name} from {self.state}")
             
             # SPECIAL HANDLING for inter-stage transitions
             inter_stage_mappings = {
@@ -373,8 +388,8 @@ class GenericStateMachine:
             
             # Normal intra-stage transitions
             available_transitions = self.get_available_transitions(turn_counter)
-            
-            print(f"📋 Available transitions for {self.state}:")
+            print("=== AVAILABLE TRANSITIONS ===")
+            print(f"{self.state}:")
             for t in available_transitions:
                 status = '✅' if t['allowed'] else '❌'
                 block_info = f" ({t['block_reason']})" if t['block_reason'] else ""
@@ -394,7 +409,8 @@ class GenericStateMachine:
             old_state = self.state
             
             # Execute the trigger
-            print(f"⚙️ Calling trigger method: {trigger_name}")
+            print("=== Calling trigger method:===")
+            print(f"{trigger_name}")
             
             # Check if method exists and is callable
             if not hasattr(self, trigger_name):
@@ -416,13 +432,17 @@ class GenericStateMachine:
                 print(f"❌ Trigger execution failed: {trigger_exception}")
                 # Let's try to manually update the state as a fallback
                 dest_state = matching_transition['dest']
-                print(f"🔄 FALLBACK: Manually updating state from {self.state} to {dest_state}")
+                # print(f"🔄 FALLBACK: Manually updating state from {self.state} to {dest_state}")
                 self.state = dest_state
-                print(f"✅ FALLBACK STATE UPDATE: {old_state} → {self.state}")
+                
+                # PERFORMANCE: Clear cache after state change
+                self._transition_cache.clear()
+                
+                # print(f"✅ FALLBACK STATE UPDATE: {old_state} → {self.state}")
                 return True
             
-            print(f"✅ STATE MACHINE TRANSITION: {old_state} --{trigger_name}--> {self.state}")
-            print(f"📝 TRANSITION REASON: {reason}")
+            # print(f"✅ STATE MACHINE TRANSITION: {old_state} --{trigger_name}--> {self.state}")
+            # print(f"📝 TRANSITION REASON: {reason}")
             
             return True
             
@@ -457,14 +477,14 @@ class GenericStateMachine:
             
             # Verify target state exists in new stage
             if target_state not in self.states:
-                print(f"❌ Target state '{target_state}' not in new stage states: {self.states}")
+                # print(f"❌ Target state '{target_state}' not in new stage states: {self.states}")
                 target_state = self.states[0] if self.states else 'unknown'
-                print(f"🔄 Using fallback state: {target_state}")
+                # print(f"🔄 Using fallback state: {target_state}")
             
             # The switch_stage method sets the state to the initial state of the new stage
             # For inter-stage transitions, we often want a specific target state
-            print(f"🎯 Current state after stage switch: {self.state}")
-            print(f"🎯 Desired target state: {target_state}")
+            # print(f"🎯 Current state after stage switch: {self.state}")
+            # print(f"🎯 Desired target state: {target_state}")
             
             if target_state != self.state:
                 print(f"🎯 Need to update state from {self.state} to {target_state}")
@@ -481,10 +501,10 @@ class GenericStateMachine:
             
             print(f"✅ INTER-STAGE TRANSITION COMPLETED: {old_stage}:{old_state} → {target_stage}:{target_state}")
             print(f"📝 TRANSITION REASON: {reason}")
-            print(f"🔍 VERIFICATION: Current state is now {self.get_current_state()}")
-            print(f"🔍 VERIFICATION: Current stage is now {self.current_stage}")
-            print(f"🔍 VERIFICATION: Available states: {self.states}")
-            print(f"🔍 VERIFICATION: Stage start turn: {self.stage_start_turn}")
+            # print(f"🔍 VERIFICATION: Current state is now {self.get_current_state()}")
+            # print(f"🔍 VERIFICATION: Current stage is now {self.current_stage}")
+            # print(f"🔍 VERIFICATION: Available states: {self.states}")
+            # print(f"🔍 VERIFICATION: Stage start turn: {self.stage_start_turn}")
             
             return True
             
@@ -548,10 +568,7 @@ class GenericStateMachine:
             # Recreate the state machine with new stage configuration
             initial_state = self.states[0] if self.states else self.initial_state
             
-            print(f"🔧 RECREATING MACHINE: initial_state={initial_state}, states={self.states}")
-            print(f"🔧 TRANSITIONS FOR STAGE: {len(new_stage_transitions)} transitions")
-            for t in new_stage_transitions:
-                print(f"    {t['trigger']}: {t['source']} → {t['dest']}")
+            # Recreating state machine silently
             
             self.machine = Machine(
                 model=self,
@@ -569,43 +586,19 @@ class GenericStateMachine:
             if hasattr(self.machine, 'model') and hasattr(self.machine.model, 'state'):
                 print(f"🔧 MACHINE MODEL STATE: {self.machine.model.state}")
             
-            # Test if trigger methods are available
-            for t in new_stage_transitions:
-                trigger_name = t['trigger']
-                if hasattr(self, trigger_name):
-                    print(f"✅ Trigger method available: {trigger_name}")
-                else:
-                    print(f"❌ Trigger method missing: {trigger_name}")
-            
-            # Verify machine states
-            print(f"🔧 MACHINE STATES: {getattr(self.machine, 'states', 'NOT_FOUND')}")
-            if hasattr(self.machine, 'models'):
-                models = self.machine.models
-                if isinstance(models, dict):
-                    print(f"🔧 MACHINE MODELS (dict): {list(models.keys())}")
-                elif isinstance(models, list):
-                    print(f"🔧 MACHINE MODELS (list): {len(models)} models")
-                else:
-                    print(f"🔧 MACHINE MODELS (other): {type(models)} - {models}")
-            
-            # Force refresh of dynamic methods if possible
+            # Setup models silently
             if hasattr(self.machine, '_add_model_to_state'):
                 for state in self.states:
                     try:
                         self.machine._add_model_to_state(self, state)
-                        print(f"✅ Added model to state: {state}")
-                    except Exception as e:
-                        print(f"❌ Failed to add model to state {state}: {e}")
+                    except:
+                        pass
             
             # Clear old guard rails and setup new ones
             self.guard_rails.clear()
             self._setup_guard_rails()
             
             print(f"🎭 STAGE SWITCH: {old_stage} → {new_stage}")
-            print(f"📋 Stage started at turn: {self.stage_start_turn}")
-            print(f"📋 New stage states: {self.states}")
-            print(f"🔄 New stage transitions: {len(new_stage_transitions)}")
-            print(f"🔒 New guard rails: {len(self.guard_rails)} rules loaded")
             
             return True
             
@@ -659,7 +652,8 @@ class GenericStateMachine:
         
         # Minimal debug logging for performance
         if stage.startswith('content_') and not belongs:
-            print(f"🔍 FILTER: {trigger} for {stage}: ❌")
+            pass
+            # Silent filtering
         
         return belongs
     
@@ -686,8 +680,83 @@ class GenericStateMachine:
             context['available_content_stages'] = available_content_stages
             context['completed_stages'] = self.completed_stages.copy()
             context['all_stages_completed'] = len(available_content_stages) == 0
+            
+            # Generate dynamic stage selection prompt based on available stages
+            context['dynamic_stage_prompt'] = self._generate_stage_selection_prompt(allowed_transitions, context)
         
         return context
+    
+    def _generate_stage_selection_prompt(self, allowed_transitions: List[Dict[str, Any]], context: Dict[str, Any] = None) -> str:
+        """Generate dynamic prompt for stage_selection based on available transitions"""
+        content_transitions = [t for t in allowed_transitions if t['trigger'].startswith('choose_')]
+        offboarding_transitions = [t for t in allowed_transitions if t['trigger'] == 'finish_all_content']
+        context = context or {}
+        
+        # Check if user requested an unavailable stage
+        unavailable_stage = context.get('unavailable_stage_requested')
+        if unavailable_stage:
+            stage_name_map = {
+                'content_psychology_society': 'Psychologie & Gesellschaft',
+                'content_politics_tech': 'Politik & Technologie'
+            }
+            stage_display_name = stage_name_map.get(unavailable_stage, unavailable_stage)
+            
+            prompt_parts = [
+                f"Ah, über {stage_display_name} haben wir bereits ausführlich gesprochen! 😊",
+                f"Wir haben schon viel über die {stage_display_name.lower()} bei Fake News gelernt.",
+                "Lass uns lieber zu einem neuen Bereich wechseln:"
+            ]
+            
+            # Add remaining available options
+            if any(t['trigger'] == 'choose_politics_tech' for t in content_transitions):
+                prompt_parts.append("Option: 'Politik & Technologie - Wahlen, Deepfakes, KI-Tools'")
+            
+            if any(t['trigger'] == 'choose_psychology_society' for t in content_transitions):
+                prompt_parts.append("Option: 'Psychologie & Gesellschaft - Manipulation, Social Media, Auswirkungen'")
+            
+            if offboarding_transitions:
+                prompt_parts.append("Option: 'Gespräch beenden und alles zusammenfassen'")
+            
+            prompt_parts.append("Was wäre für dich interessant?")
+            return " ".join(prompt_parts)
+        
+        if len(content_transitions) == 0:
+            # No content stages available - only offboarding
+            return (
+                "Du hast alle verfügbaren Content-Bereiche abgeschlossen! "
+                "Zeit für eine abschließende Reflexion über das Gelernte. "
+                "Frage: 'Sollen wir das Gespräch zusammenfassen und beenden?'"
+            )
+        
+        prompt_parts = ["Biete dem User folgende verfügbare Content-Bereiche an:"]
+        
+        # Add available content stages
+        if any(t['trigger'] == 'choose_politics_tech' for t in content_transitions):
+            prompt_parts.append("Option: 'Politik & Technologie - Wahlen, Deepfakes, KI-Tools'")
+        
+        if any(t['trigger'] == 'choose_psychology_society' for t in content_transitions):
+            prompt_parts.append("Option: 'Psychologie & Gesellschaft - Manipulation, Social Media, Auswirkungen'")
+        
+        # Add offboarding option
+        if offboarding_transitions:
+            prompt_parts.append("Option: 'Gespräch beenden und Lernerfahrung reflektieren'")
+        
+        # Add completion info if some stages are already done
+        if len(self.completed_stages) > 0:
+            completed_names = []
+            for stage in self.completed_stages:
+                if stage == 'content_politics_tech':
+                    completed_names.append('Politik & Technologie')
+                elif stage == 'content_psychology_society':
+                    completed_names.append('Psychologie & Gesellschaft')
+            
+            if completed_names:
+                prompt_parts.append(f"✅ Bereits abgeschlossen: {', '.join(completed_names)}")
+        
+        prompt_parts.append("Frage: 'Was interessiert dich mehr?' oder 'Womit sollen wir weitermachen?'")
+        prompt_parts.append("Sei enthusiastisch und mache Lust auf die verfügbaren Optionen.")
+        
+        return " ".join(prompt_parts)
 
 def load_state_machine_config(config_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Load state machine configuration from JSON file"""

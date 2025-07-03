@@ -149,25 +149,63 @@ class StageSelectionRule(DecisionRule):
     """Handle stage selection logic with dynamic stage availability"""
     
     def __init__(self):
-        super().__init__("stage_selection_rule", priority=50)
+        super().__init__("stage_selection_rule", priority=25)
     
     def applies(self, context: Dict[str, Any]) -> bool:
         return context.get('current_stage') == 'stage_selection'
     
+    def _detect_unavailable_stage_request(self, context: Dict[str, Any]) -> Optional[str]:
+        """Detect if user is asking for an unavailable stage"""
+        # Get user's last message (this would need to be passed in context)
+        last_message = context.get('last_user_message', '').lower()
+        completed_stages = context.get('completed_stages', [])
+        
+        # Check if user is asking for psychology/society and it's completed
+        if any(word in last_message for word in ['psychologie', 'psychology', 'gesellschaft', 'society', 'social media']) and 'content_psychology_society' in completed_stages:
+            return 'content_psychology_society'
+        
+        # Check if user is asking for politics/tech and it's completed  
+        if any(word in last_message for word in ['politik', 'politics', 'technologie', 'technology', 'deepfake', 'ki']) and 'content_politics_tech' in completed_stages:
+            return 'content_politics_tech'
+        
+        return None
+    
     def evaluate(self, context: Dict[str, Any]) -> Optional[str]:
         available_content_stages = context.get('available_content_stages', [])
         all_stages_completed = context.get('all_stages_completed', False)
+        available_transitions = context.get('available_transitions', [])
+        completed_stages = context.get('completed_stages', [])
         
-        # If all content stages are completed, suggest offboarding
+        # Check if user is requesting an unavailable stage
+        unavailable_stage_requested = self._detect_unavailable_stage_request(context)
+        if unavailable_stage_requested:
+            print(f"🚫 User requesting unavailable stage: {unavailable_stage_requested}")
+            # Set a special context flag for the LLM to handle this
+            context['unavailable_stage_requested'] = unavailable_stage_requested
+            # Let LLM handle with special prompt
+            return None
+        
+        # Filter available transitions to only show those that are allowed
+        allowed_transitions = [t for t in available_transitions if t.get('allowed', True)]
+        
+        # If all content stages are completed, force offboarding
         if all_stages_completed:
-            available_transitions = context.get('available_transitions', [])
-            offboarding_transitions = [t for t in available_transitions if t['trigger'] == 'finish_all_content']
+            offboarding_transitions = [t for t in allowed_transitions if t['trigger'] == 'finish_all_content']
             if offboarding_transitions:
-                print(f"🎯 All content stages completed - suggesting offboarding")
+                print(f"🎯 All content stages completed - forcing offboarding")
+                return 'finish_all_content'
+        
+        # Check if there are no allowed content stage transitions left
+        content_transitions = [t for t in allowed_transitions if t['trigger'].startswith('choose_')]
+        if len(content_transitions) == 0 and len(completed_stages) > 0:
+            # Only offboarding is available
+            offboarding_transitions = [t for t in allowed_transitions if t['trigger'] == 'finish_all_content']
+            if offboarding_transitions:
+                print(f"🎯 No more content stages available - suggesting offboarding")
                 return 'finish_all_content'
         
         # Otherwise, let LLM choose from available content stages
-        print(f"🎯 Stage selection: {len(available_content_stages)} stages available")
+        print(f"🎯 Stage selection: {len(available_content_stages)} stages available, {len(content_transitions)} transitions allowed")
         return None
     
     def get_reason(self, context: Dict[str, Any]) -> str:
@@ -209,11 +247,11 @@ class DecisionRuleEngine:
     
     def evaluate_decision(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate all applicable rules and return decision"""
-        print(f"🎯 RULE ENGINE: Evaluating {len(self.rules)} rules")
+        # print(f"🎯 RULE ENGINE: Evaluating {len(self.rules)} rules")
         
         for rule in self.rules:
             if rule.applies(context):
-                print(f"  📋 Rule {rule.name} (priority {rule.priority}) applies")
+                # print(f"  📋 Rule {rule.name} (priority {rule.priority}) applies")
                 trigger = rule.evaluate(context)
                 if trigger:
                     reason = rule.get_reason(context)
@@ -225,7 +263,8 @@ class DecisionRuleEngine:
                         'forced': True
                     }
                 else:
-                    print(f"  ⏭️ Rule {rule.name} applied but no trigger returned")
+                    pass
+                    # print(f"  ⏭️ Rule {rule.name} applied but no trigger returned")
         
         print(f"  🤷 No rules triggered - LLM decision needed")
         return {
@@ -248,7 +287,7 @@ class DecisionRuleEngine:
         # Get stage configuration
         stage_config = sm.stages.get(sm.current_stage, {})
         
-        return {
+        context = {
             'current_state': sm.get_current_state(),
             'current_stage': sm.current_stage,
             'turn_counter': turn_counter,
@@ -259,5 +298,10 @@ class DecisionRuleEngine:
             'target_turns': stage_config.get('target_turns', 12),
             'closure_states': stage_config.get('closure_states', []),
             'golden_path': stage_config.get('golden_path', []),
-            'derailing_states': stage_config.get('derailing_states', [])
+            'derailing_states': stage_config.get('derailing_states', []),
+            'last_user_message': getattr(agent_state, 'instruction', ''),
+            'available_content_stages': getattr(sm, 'completed_stages', []),
+            'completed_stages': getattr(sm, 'completed_stages', [])
         }
+        
+        return context

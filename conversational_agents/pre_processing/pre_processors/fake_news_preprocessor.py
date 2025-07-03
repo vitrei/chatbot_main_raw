@@ -21,7 +21,8 @@ class FakeNewsPreProcessor(BasePreProcessor):
         """
         Non-blocking invoke - starts async file check in background
         """
-        print(f"🔍 Starting fake news availability check for user {agent_state.user_id}")
+        print("=== FAKE NEWS PREPROCESSOR ===")
+        print(f"Checking availability for user: {agent_state.user_id}")
         
         # Check cache first
         if agent_state.user_id in self._fake_news_available:

@@ -7,8 +7,7 @@ class ConversationStateMachine(GenericStateMachine):
     """Conversation-specific state machine wrapper using generic backend"""
     
     def __init__(self, config):
-        """Initialize conversation state machine with generic backend"""
-        
+        """Initialize conversation state machine with generic backend"""        
         # Extract states from current stage if available
         current_stage = config.get('current_stage', 'onboarding')
         stages = config.get('stages', {})

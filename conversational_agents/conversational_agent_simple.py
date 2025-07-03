@@ -94,23 +94,31 @@ class ConversationalAgentSimple(ConversationalAgent):
             print(f"❌ ERROR loading examples for {current_state}: {e}")
             return []
 
-    def build_dynamic_prompt(self, current_state):
+    def build_dynamic_prompt(self, current_state, stage_context=None):
         """Master prompt builder - single source of truth for all conversation prompts"""
         try:
-            print(f"🎨 BUILDING DYNAMIC PROMPT for state: {current_state}")
+            # print(f"🎨 BUILDING DYNAMIC PROMPT for state: {current_state}")
             
             # === 1. BASE SYSTEM PROMPT (from prompts_fake_news.json) ===
             base_system_prompt = " ".join(self.state.prompts['system_prompt'])
-            print(f"  ✅ Base system prompt loaded")
+            # print(f"  ✅ Base system prompt loaded")
             
             # === 2. STATE-SPECIFIC INSTRUCTIONS (from state_machine.json) ===
             state_instructions = []
             if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
                 # Use injected state machine prompts (preferred)
-                state_instructions = self.state.current_state_prompts
-                print(f"  ✅ State instructions from state machine: {len(state_instructions)} items")
+                state_instructions = self.state.current_state_prompts.copy()
+                # print(f"  ✅ State instructions from state machine: {len(state_instructions)} items")
             else:
                 print(f"  ⚠️ No state machine prompts available for {current_state}")
+            
+            # Override with dynamic prompt for stage_selection if available
+            if stage_context and current_state == 'stage_selection' and stage_context.get('dynamic_stage_prompt'):
+                dynamic_prompt = stage_context['dynamic_stage_prompt']
+                state_instructions = [dynamic_prompt]  # Replace with dynamic prompt
+                # print(f"  🎯 Using dynamic stage selection prompt")
+            elif stage_context and current_state == 'stage_selection' and stage_context.get('unavailable_stage_requested'):
+                print(f"  🚫 Stage selection with unavailable stage request")
             
             # === 3. BEHAVIORAL GUIDANCE (from guiding instructions) ===
             behavioral_guidance = "Natürlich und locker sprechen."
@@ -121,11 +129,11 @@ class ConversationalAgentSimple(ConversationalAgent):
                     behavioral_part = full_instruction.split("INHALT/PHASE:")[0].replace("VERHALTEN:", "").strip()
                     if behavioral_part:
                         behavioral_guidance = behavioral_part
-                print(f"  ✅ Behavioral guidance: {behavioral_guidance[:50]}...")
+                # print(f"  ✅ Behavioral guidance: {behavioral_guidance[:50]}...")
             
             # === 4. FEW-SHOT EXAMPLES (from state_machine.json) ===
             examples = self.get_state_examples(current_state)
-            print(f"  ✅ Examples loaded: {len(examples)} examples")
+            # print(f"  ✅ Examples loaded: {len(examples)} examples")
             
             # === BUILD COMPREHENSIVE SYSTEM PROMPT ===
             system_prompt_components = [
@@ -164,7 +172,7 @@ class ConversationalAgentSimple(ConversationalAgent):
             # Add few-shot examples for reinforcement
             if examples:
                 messages.extend(examples)
-                print(f"  ✅ Added {len(examples)} few-shot examples")
+                # print(f"  ✅ Added {len(examples)} few-shot examples")
             
             # Add chat history and current input placeholders
             messages.extend([
@@ -172,7 +180,7 @@ class ConversationalAgentSimple(ConversationalAgent):
                 ("human", "{input}")
             ])
             
-            print(f"  ✅ Dynamic prompt built successfully with {len(messages)} components")
+            # print(f"  ✅ Dynamic prompt built successfully with {len(messages)} components")
             return ChatPromptTemplate.from_messages(messages)
             
         except Exception as e:
@@ -225,7 +233,7 @@ class ConversationalAgentSimple(ConversationalAgent):
         if next_action.type == NextActionDecisionType.PROMPT_ADAPTION:
             # Inject state machine context into agent state
             if next_action.payload:
-                print(f"🔄 PROMPT_ADAPTION: Injecting state machine context for {next_action.payload.get('current_state')}")
+                # print(f"🔄 PROMPT_ADAPTION: Injecting state machine context for {next_action.payload.get('current_state')}")
                 
                 # Store state machine prompts and examples in agent state
                 if 'state_system_prompts' in next_action.payload:
@@ -259,8 +267,21 @@ class ConversationalAgentSimple(ConversationalAgent):
             current_state = self.get_current_state_from_state_machine()
             # print(f"🎯 ACTUAL STATE MACHINE STATE: {current_state}")
             
+            # Get full state machine context (includes dynamic prompts and stage info) - MOVED EARLIER
+            stage_context = {}
+            if hasattr(self.state, 'state_machine') and self.state.state_machine:
+                available_transitions = self.state.state_machine.get_available_transitions()
+                stage_context = self.state.state_machine.get_state_context_for_decision_agent(self.state.conversation_turn_counter)
+                # print(f"🔄 AVAILABLE TRANSITIONS: {[t['trigger'] for t in available_transitions]}")
+                
+                # Check for unavailable stage requests in stage_selection
+                if current_state == 'stage_selection' and stage_context.get('unavailable_stage_requested'):
+                    print(f"🚫 UNAVAILABLE STAGE REQUESTED: {stage_context['unavailable_stage_requested']}")
+                elif current_state == 'stage_selection' and stage_context.get('dynamic_stage_prompt'):
+                    print(f"📋 DYNAMIC STAGE PROMPT AVAILABLE")
+            
             # Build dynamic prompt with state-specific content and examples
-            dynamic_prompt = self.build_dynamic_prompt(current_state)
+            dynamic_prompt = self.build_dynamic_prompt(current_state, stage_context)
             
             llm = llm_factory.get_llm()
             chain = dynamic_prompt | llm
@@ -275,12 +296,6 @@ class ConversationalAgentSimple(ConversationalAgent):
             # TODO: User profile context will be integrated into build_dynamic_prompt later
             user_profile_context = ""  # Removed for now
             
-            # Debug output showing state machine context
-            if hasattr(self.state, 'state_machine') and self.state.state_machine:
-                available_transitions = self.state.state_machine.get_available_transitions()
-                # print(f"🎰 STATE MACHINE STATE: {current_state}")
-                print(f"🔄 AVAILABLE TRANSITIONS: {[t['trigger'] for t in available_transitions]}")
-            
             # print(f"🎯 BEHAVIORAL INSTRUCTION: {getattr(self.state, 'current_guiding_instruction_name', 'None')}")
             # print(f"💭 COMBINED GUIDANCE: {getattr(self.state, 'current_guiding_instruction', 'None')[:100] if hasattr(self.state, 'current_guiding_instruction') else 'None'}...")
             # print(f"DEBUG: Using state-specific prompt and examples for state machine state: {current_state}")
@@ -288,7 +303,7 @@ class ConversationalAgentSimple(ConversationalAgent):
             # Debug: Show what exact instructions the LLM gets (use injected prompts)
             if hasattr(self.state, 'current_state_prompts') and self.state.current_state_prompts:
                 state_instructions = self.state.current_state_prompts
-                print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM (from state machine):")
+                # print(f"🎭 EXACT STATE INSTRUCTIONS SENT TO LLM (from state machine):")
             else:
                 state_prompts = self.state.prompts.get('state_system_prompts', {})
                 state_instructions = state_prompts.get(current_state, [])
@@ -353,7 +368,13 @@ class ConversationalAgentSimple(ConversationalAgent):
         if self.generate_answer(next_action):
             # Use real state machine state for streaming too
             current_state = self.get_current_state_from_state_machine()
-            dynamic_prompt = self.build_dynamic_prompt(current_state)
+            
+            # Get stage context for streaming too
+            stage_context = {}
+            if hasattr(self.state, 'state_machine') and self.state.state_machine:
+                stage_context = self.state.state_machine.get_state_context_for_decision_agent(self.state.conversation_turn_counter)
+            
+            dynamic_prompt = self.build_dynamic_prompt(current_state, stage_context)
             
             llm = llm_factory.get_llm()
             chain = dynamic_prompt | llm
