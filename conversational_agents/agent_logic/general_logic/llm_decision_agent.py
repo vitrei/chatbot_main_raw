@@ -8,12 +8,15 @@ from data_models.data_models import AgentState, NextActionDecision, NextActionDe
 from conversational_agents.agent_logic.base_decision_agent import BaseDecisionAgent
 from large_language_models.llm_factory import llm_factory
 from conversational_agents.agent_logic.state_machine_wrapper import create_state_machine_from_prompts, load_state_machine_config
+from conversational_agents.agent_logic.general_logic.decision_rule_engine import DecisionRuleEngine
 
 from prompts.prompt_loader import prompt_loader
 
 class LLMDecisionAgent(BaseDecisionAgent):
 
     def __init__(self):
+        # Initialize rule engine (will be set up when config is loaded)
+        self.rule_engine = None
         super().__init__()
         
         # Balanced decision agent prompt - structured but compact
@@ -436,78 +439,38 @@ WICHTIG: Antworte NUR mit diesem JSON-Format:
             return {}
     
     def check_guard_rail_enforcement(self, agent_state: AgentState, available_transitions):
-        """Check if guard rails require forced transitions - PRIORITY ORDER"""
+        """Check if guard rails require forced transitions using rule engine"""
         try:
             if not hasattr(agent_state, 'state_machine') or not agent_state.state_machine:
+                print("❌ No state machine available for guard rail check")
                 return None
             
-            current_state = agent_state.state_machine.get_current_state()
-            turn_counter = agent_state.conversation_turn_counter
-            stage_info = agent_state.state_machine.stages.get(agent_state.state_machine.current_stage, {})
-            
-            mandatory_sequence = stage_info.get('mandatory_sequence', [])
-            min_turns = stage_info.get('min_turns', 8)
-            max_turns = stage_info.get('max_turns', 12)
-            guard_rails = stage_info.get('guard_rails', {})
-            
-            print(f"🔒 GUARD RAIL CHECK: Turn {turn_counter}, State {current_state}")
-            print(f"   Min turns: {min_turns}, Max turns: {max_turns}")
-            print(f"   Force closure enabled: {guard_rails.get('force_closure_after_max_turns', False)}")
-            
-            # === PRIORITY 1: ABSOLUTE TURN 12 CLOSURE (ONLY FOR ONBOARDING STAGE) ===
-            current_stage = agent_state.state_machine.current_stage
-            if turn_counter >= 12 and current_stage == 'onboarding':
-                print(f"🚨 ABSOLUTE CLOSURE: Turn {turn_counter} >= 12 - MUST end onboarding")
-                # Find any available transition to onboarding_closure
-                closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
-                if closure_transitions:
-                    print(f"✅ Found closure transition: {closure_transitions[0]['trigger']}")
-                    return closure_transitions[0]['trigger']
+            # Initialize rule engine if not already done
+            if self.rule_engine is None:
+                config = load_state_machine_config()
+                if config:
+                    self.rule_engine = DecisionRuleEngine(config)
+                    print(f"🎯 Rule engine initialized with {len(self.rule_engine.rules)} rules")
                 else:
-                    print(f"❌ NO CLOSURE TRANSITIONS AVAILABLE - using emergency_closure")
-                    # Emergency: Force emergency_closure trigger (should always be available)
-                    all_transitions = agent_state.state_machine.get_available_transitions(turn_counter)
-                    emergency_transition = next((t for t in all_transitions if t['trigger'] == 'emergency_closure'), None)
-                    if emergency_transition:
-                        print(f"🆘 EMERGENCY CLOSURE: emergency_closure (bypassing all guard rails)")
-                        return 'emergency_closure'
-                    else:
-                        print(f"🚨 CRITICAL ERROR: No emergency_closure transition available!")
-                        # Last resort: try any closure transition that exists in config
-                        for t in all_transitions:
-                            if t['dest'] == 'onboarding_closure':
-                                print(f"🆘 LAST RESORT CLOSURE: {t['trigger']}")
-                                return t['trigger']
+                    print("❌ Could not load config for rule engine")
+                    return None
             
-            # === PRIORITY 2: TURN 11+ WARNING - PREPARE FOR CLOSURE (ONLY FOR ONBOARDING) ===
-            elif turn_counter >= 11 and current_stage == 'onboarding':
-                print(f"⚠️ CLOSURE WARNING: Turn {turn_counter} - should move toward closure soon")
-                closure_transitions = [t for t in available_transitions if t['dest'] == 'onboarding_closure']
-                if closure_transitions:
-                    print(f"💡 Closure available: {closure_transitions[0]['trigger']} - suggesting closure")
-                    return closure_transitions[0]['trigger']
-                else:
-                    # Try emergency closure at turn 11 too
-                    all_transitions = agent_state.state_machine.get_available_transitions(turn_counter)
-                    emergency_transition = next((t for t in all_transitions if t['trigger'] == 'emergency_closure'), None)
-                    if emergency_transition:
-                        print(f"🆘 TURN 11 EMERGENCY: using emergency_closure")
-                        return 'emergency_closure'
+            # Get context for rule evaluation
+            context = self.rule_engine.get_context_from_agent_state(agent_state, available_transitions)
             
-            # === PRIORITY 3: REGULAR GUARD RAILS (ONLY BEFORE TURN 11) ===
-            elif turn_counter < 11:
-                # Force progression through mandatory sequence (only early in conversation)
-                if guard_rails.get('enforce_sequence', False) and mandatory_sequence:
-                    current_index = self.get_sequence_index_decision(current_state, mandatory_sequence)
-                    if current_index >= 0 and current_index < len(mandatory_sequence) - 1:
-                        next_mandatory = mandatory_sequence[current_index + 1]
-                        next_transitions = [t for t in available_transitions if t['dest'] == next_mandatory]
-                        if next_transitions and turn_counter >= (current_index + 1) * 2:  # Force progression every 2 turns
-                            print(f"🔄 SEQUENCE ENFORCEMENT: {next_transitions[0]['trigger']} -> {next_mandatory}")
-                            return next_transitions[0]['trigger']
+            if 'error' in context:
+                print(f"❌ Context error: {context['error']}")
+                return None
             
-            print(f"✅ No forced transitions needed at turn {turn_counter}")
-            return None
+            # Evaluate rules
+            decision = self.rule_engine.evaluate_decision(context)
+            
+            if decision['forced']:
+                print(f"🎯 RULE ENGINE DECISION: {decision['trigger']} (reason: {decision['reason']})")
+                return decision['trigger']
+            else:
+                print(f"✅ No forced transitions needed - LLM can decide")
+                return None
             
         except Exception as e:
             print(f"❌ Error in guard rail enforcement: {e}")

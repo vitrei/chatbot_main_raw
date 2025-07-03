@@ -205,6 +205,7 @@ class GenericStateMachine:
         self.guard_rails: List[GuardRailRule] = []
         self.turn_counter = 0
         self.stage_start_turn = 0  # Track when current stage started
+        self.completed_stages: List[str] = []  # Track completed content stages
         
         # Extract basic configuration
         self.stages = config.get('stages', {})
@@ -359,12 +360,16 @@ class GenericStateMachine:
             print(f"🚀 EXECUTING TRANSITION: {trigger_name} from {self.state}")
             
             # SPECIAL HANDLING for inter-stage transitions
-            if trigger_name == "proceed_to_stage_selection":
-                return self._execute_inter_stage_transition("stage_selection", turn_counter, reason)
-            elif trigger_name == "choose_politics_tech":
-                return self._execute_inter_stage_transition("content_politics_tech", turn_counter, reason, "content_intro_pt")
-            elif trigger_name == "choose_psychology_society":
-                return self._execute_inter_stage_transition("content_psychology_society", turn_counter, reason, "content_intro_ps")
+            inter_stage_mappings = {
+                "proceed_to_stage_selection": ("stage_selection", "stage_selection"),
+                "choose_politics_tech": ("content_politics_tech", "content_intro_pt"),
+                "choose_psychology_society": ("content_psychology_society", "content_intro_ps"),
+                "finish_all_content": ("offboarding", "stage_completion_review")
+            }
+            
+            if trigger_name in inter_stage_mappings:
+                target_stage, target_state = inter_stage_mappings[trigger_name]
+                return self._execute_inter_stage_transition(target_stage, turn_counter, reason, target_state)
             
             # Normal intra-stage transitions
             available_transitions = self.get_available_transitions(turn_counter)
@@ -440,6 +445,10 @@ class GenericStateMachine:
                 target_state = "stage_selection"
             
             print(f"🎭 INTER-STAGE TRANSITION: {old_stage}:{old_state} → {target_stage}:{target_state}")
+            
+            # Mark current stage as completed if it's a content stage being left
+            if old_stage.startswith('content_') and target_stage != old_stage:
+                self.mark_stage_completed(old_stage)
             
             # Switch stage and recreate state machine
             success = self.switch_stage(target_stage, turn_counter)
@@ -604,6 +613,34 @@ class GenericStateMachine:
             print(f"❌ Error switching stage: {e}")
             return False
     
+    def mark_stage_completed(self, stage_name: str):
+        """Mark a stage as completed"""
+        if stage_name not in self.completed_stages and stage_name.startswith('content_'):
+            self.completed_stages.append(stage_name)
+            print(f"📋 STAGE COMPLETED: {stage_name} (Total completed: {len(self.completed_stages)})")
+    
+    def get_available_content_stages(self) -> List[str]:
+        """Get list of content stages that haven't been completed yet"""
+        all_content_stages = [name for name in self.stages.keys() if name.startswith('content_')]
+        available_stages = [stage for stage in all_content_stages if stage not in self.completed_stages]
+        print(f"📊 STAGE STATUS: Available={available_stages}, Completed={self.completed_stages}")
+        return available_stages
+    
+    def _determine_other_content_stage(self, turn_counter: int) -> tuple[str, str]:
+        """Determine which content stage to transition to based on current stage"""
+        current_stage = self.current_stage
+        
+        if current_stage == "content_politics_tech":
+            # User completed politics/tech, now show psychology/society
+            return ("content_psychology_society", "content_intro_ps")
+        elif current_stage == "content_psychology_society":
+            # User completed psychology/society, now show politics/tech
+            return ("content_politics_tech", "content_intro_pt")
+        else:
+            # Fallback - shouldn't happen but just in case
+            print(f"⚠️ Unexpected stage for choose_other_content: {current_stage}")
+            return ("content_politics_tech", "content_intro_pt")
+    
     def _transition_belongs_to_stage(self, transition: Dict[str, Any], stage: str) -> bool:
         """Check if a transition belongs to a specific stage"""
         stage_config = self.stages.get(stage, {})
@@ -633,7 +670,7 @@ class GenericStateMachine:
         # Filter only allowed transitions
         allowed_transitions = [t for t in available_transitions if t['allowed']]
         
-        return {
+        context = {
             'current_state': self.state,
             'current_stage': self.current_stage,
             'available_transitions': allowed_transitions,
@@ -642,6 +679,15 @@ class GenericStateMachine:
             'turn_counter': turn_counter,
             'forced_transition': self.check_forced_transitions(turn_counter)
         }
+        
+        # Add stage completion info if in stage_selection
+        if self.current_stage == 'stage_selection':
+            available_content_stages = self.get_available_content_stages()
+            context['available_content_stages'] = available_content_stages
+            context['completed_stages'] = self.completed_stages.copy()
+            context['all_stages_completed'] = len(available_content_stages) == 0
+        
+        return context
 
 def load_state_machine_config(config_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Load state machine configuration from JSON file"""

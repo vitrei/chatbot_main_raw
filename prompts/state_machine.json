@@ -91,7 +91,8 @@
             "transition_decision_logic": {
                 "stage_selection": {
                     "choose_politics_tech": "User interessiert sich für Politik & Technologie: 'Politik', 'Wahlen', 'Deepfakes', 'KI', 'Technologie'",
-                    "choose_psychology_society": "User interessiert sich für Psychologie & Gesellschaft: 'Menschen', 'Psychologie', 'Gesellschaft', 'Social Media'"
+                    "choose_psychology_society": "User interessiert sich für Psychologie & Gesellschaft: 'Menschen', 'Psychologie', 'Gesellschaft', 'Social Media'",
+                    "finish_all_content": "User möchte beenden: 'Das reicht mir', 'Ich bin fertig', 'Danke für alles', 'Ich habe genug gelernt'"
                 }
             }
         },
@@ -99,9 +100,9 @@
             "states": ["content_intro_pt", "politics_deep_dive", "technology_deep_dive", "content_synthesis_pt", "content_closure_pt"],
             "golden_path": ["content_intro_pt", "politics_deep_dive", "technology_deep_dive", "content_synthesis_pt", "content_closure_pt"],
             "derailing_states": [],
-            "target_turns": 15,
+            "target_turns": 8,
             "relative_turns": true,
-            "max_turns_in_stage": 15,
+            "max_turns_in_stage": 10,
             "min_turns": 3,
             "max_turns": 20,
             "closure_states": ["content_closure_pt"],
@@ -109,14 +110,14 @@
                 "enforce_sequence": false,
                 "force_closure_after_max_turns": true,
                 "allow_sequence_skip": true,
-                "allow_backward": true,
-                "max_derailing_time": 5,
-                "force_golden_path_return": false
+                "allow_backward": false,
+                "max_derailing_time": 3,
+                "force_golden_path_return": true
             },
             "progression_rules": {
-                "turns_per_state": 3,
-                "force_progression": false,
-                "golden_path_priority": false
+                "turns_per_state": 1,
+                "force_progression": true,
+                "golden_path_priority": true
             },
             "transition_decision_logic": {
                 "content_intro_pt": {
@@ -133,6 +134,9 @@
                 },
                 "content_synthesis_pt": {
                     "finish_content": "User hat beide Themen verstanden und will abschließen"
+                },
+                "content_closure_pt": {
+                    "proceed_to_stage_selection": "User möchte zur Stage-Auswahl: 'Was gibt es noch?', 'Andere Themen?', oder zeigt generelles Interesse am Fortfahren"
                 }
             }
         },
@@ -140,9 +144,9 @@
             "states": ["content_intro_ps", "psychology_deep_dive", "society_deep_dive", "content_synthesis_ps", "content_closure_ps"],
             "golden_path": ["content_intro_ps", "psychology_deep_dive", "society_deep_dive", "content_synthesis_ps", "content_closure_ps"],
             "derailing_states": [],
-            "target_turns": 15,
+            "target_turns": 8,
             "relative_turns": true,
-            "max_turns_in_stage": 15,
+            "max_turns_in_stage": 10,
             "min_turns": 3,
             "max_turns": 20,
             "closure_states": ["content_closure_ps"],
@@ -150,14 +154,14 @@
                 "enforce_sequence": false,
                 "force_closure_after_max_turns": true,
                 "allow_sequence_skip": true,
-                "allow_backward": true,
-                "max_derailing_time": 5,
-                "force_golden_path_return": false
+                "allow_backward": false,
+                "max_derailing_time": 3,
+                "force_golden_path_return": true
             },
             "progression_rules": {
-                "turns_per_state": 3,
-                "force_progression": false,
-                "golden_path_priority": false
+                "turns_per_state": 1,
+                "force_progression": true,
+                "golden_path_priority": true
             },
             "transition_decision_logic": {
                 "content_intro_ps": {
@@ -174,16 +178,112 @@
                 },
                 "content_synthesis_ps": {
                     "finish_content": "User hat beide Themen verstanden und will abschließen"
+                },
+                "content_closure_ps": {
+                    "proceed_to_stage_selection": "User möchte zur Stage-Auswahl: 'Was gibt es noch?', 'Andere Themen?', oder zeigt generelles Interesse am Fortfahren"
+                }
+            }
+        },
+        "offboarding": {
+            "states": ["stage_completion_review", "learning_reflection", "final_encouragement", "goodbye"],
+            "golden_path": ["stage_completion_review", "learning_reflection", "final_encouragement", "goodbye"],
+            "derailing_states": [],
+            "target_turns": 4,
+            "relative_turns": true,
+            "max_turns_in_stage": 6,
+            "min_turns": 2,
+            "max_turns": 8,
+            "closure_states": ["goodbye"],
+            "guard_rails": {
+                "enforce_sequence": true,
+                "force_closure_after_max_turns": true,
+                "allow_sequence_skip": false,
+                "allow_backward": false,
+                "max_derailing_time": 2,
+                "force_golden_path_return": true
+            },
+            "progression_rules": {
+                "turns_per_state": 1,
+                "force_progression": true,
+                "golden_path_priority": true
+            },
+            "transition_decision_logic": {
+                "stage_completion_review": {
+                    "reflect_on_learning": "User zeigt Interesse an Reflexion: 'Was habe ich gelernt?', 'Das war interessant'"
+                },
+                "learning_reflection": {
+                    "encourage_further": "User hat reflektiert, bereit für Ermutigung und weitere Tipps"
+                },
+                "final_encouragement": {
+                    "say_goodbye": "User ist bereit für Abschluss: 'Danke', 'Auf Wiedersehen', zeigt Abschlussbereitschaft"
                 }
             }
         }
+    },
+    "decision_rules": {
+        "closure_rules": [
+            {
+                "trigger": "move_to_closure",
+                "conditions": {
+                    "stages": ["onboarding"],
+                    "absolute_turn_limit": 12
+                }
+            },
+            {
+                "trigger": "finish_content",
+                "conditions": {
+                    "stages": ["content_politics_tech", "content_psychology_society"],
+                    "states": ["content_synthesis_pt", "content_synthesis_ps"],
+                    "stage_turn_limit": 6
+                }
+            },
+            {
+                "trigger": "proceed_to_stage_selection",
+                "conditions": {
+                    "stages": ["content_politics_tech", "content_psychology_society"],
+                    "states": ["content_closure_pt", "content_closure_ps"],
+                    "stage_turn_limit": 3
+                }
+            },
+            {
+                "trigger": "say_goodbye",
+                "conditions": {
+                    "stages": ["offboarding"],
+                    "absolute_turn_limit": 50
+                }
+            }
+        ],
+        "progression_rules": [
+            {
+                "source_states": ["psychology_deep_dive", "society_deep_dive"],
+                "target_patterns": ["synthesis"],
+                "min_turns_in_state": 1,
+                "max_turns_in_state": 2
+            },
+            {
+                "source_states": ["politics_deep_dive", "technology_deep_dive"],
+                "target_patterns": ["synthesis"],
+                "min_turns_in_state": 1,
+                "max_turns_in_state": 2
+            }
+        ],
+        "cycling_prevention_rules": [
+            {
+                "cycling_states": ["psychology_deep_dive", "society_deep_dive", "politics_deep_dive", "technology_deep_dive"],
+                "max_cycling_turns": 6,
+                "escape_patterns": ["synthesis", "closure"]
+            }
+        ]
     },
     "inter_stage_transitions": {
         "onboarding_closure": "stage_selection",
         "stage_selection": {
             "choose_politics_tech": "content_politics_tech",
-            "choose_psychology_society": "content_psychology_society"
-        }
+            "choose_psychology_society": "content_psychology_society",
+            "finish_all_content": "offboarding"
+        },
+        "content_closure_pt": "stage_selection",
+        "content_closure_ps": "stage_selection"
     },
     "transitions": [
         {
@@ -267,6 +367,11 @@
             "dest": "content_intro_ps"
         },
         {
+            "trigger": "finish_all_content",
+            "source": "stage_selection",
+            "dest": "stage_completion_review"
+        },
+        {
             "trigger": "start_politics",
             "source": "content_intro_pt",
             "dest": "politics_deep_dive"
@@ -325,6 +430,31 @@
             "trigger": "finish_content",
             "source": "content_synthesis_ps",
             "dest": "content_closure_ps"
+        },
+        {
+            "trigger": "proceed_to_stage_selection",
+            "source": "content_closure_pt",
+            "dest": "stage_selection"
+        },
+        {
+            "trigger": "proceed_to_stage_selection",
+            "source": "content_closure_ps",
+            "dest": "stage_selection"
+        },
+        {
+            "trigger": "reflect_on_learning",
+            "source": "stage_completion_review",
+            "dest": "learning_reflection"
+        },
+        {
+            "trigger": "encourage_further",
+            "source": "learning_reflection",
+            "dest": "final_encouragement"
+        },
+        {
+            "trigger": "say_goodbye",
+            "source": "final_encouragement",
+            "dest": "goodbye"
         }
     ],
     "state_system_prompts": {
@@ -465,6 +595,30 @@
             "Betone die Verantwortung jedes Einzelnen.",
             "Gib konkrete Tipps für bewussten Medienkonsum.",
             "Ermutige zu empathischer und kritischer Kommunikation."
+        ],
+        "stage_completion_review": [
+            "Gratuliere zum Abschluss der Content-Stages!",
+            "Fasse kurz zusammen was behandelt wurde.",
+            "Frage was der User mitnimmt: 'Was war am wertvollsten?'",
+            "Bereite auf Reflexion vor."
+        ],
+        "learning_reflection": [
+            "Lade zur tieferen Reflexion ein.",
+            "Frage: 'Wie siehst du Social Media jetzt anders?'",
+            "Diskutiere persönliche Veränderungen im Verhalten.",
+            "Ermutige zur Weitergabe des Wissens."
+        ],
+        "final_encouragement": [
+            "Ermutige den User als 'Fake News Fighter'.",
+            "Betone: Du kannst jetzt andere aufklären.",
+            "Gib finale Tipps für den Alltag.",
+            "Bereite auf herzlichen Abschied vor."
+        ],
+        "goodbye": [
+            "Herzlicher Abschied.",
+            "Danke für die Zeit und das Interesse.",
+            "Letzte Ermutigung: 'Du machst einen Unterschied!'",
+            "Wünsche alles Gute für die Zukunft."
         ]
     },
     "trigger_descriptions": {
@@ -493,7 +647,11 @@
         "explore_society": "Content: Switch from psychology to society",
         "explore_psychology": "Content: Switch from society to psychology",
         "synthesize_content": "Content: Ready to synthesize learnings",
-        "finish_content": "Content: Complete content stage"
+        "finish_content": "Content: Complete content stage",
+        "finish_all_content": "Stage Selection/Offboarding: Complete all learning and proceed to offboarding",
+        "reflect_on_learning": "Offboarding: Reflect on learning experience",
+        "encourage_further": "Offboarding: Encourage continued application",
+        "say_goodbye": "Offboarding: Final farewell"
     },
     "state_examples": {
         "init_greeting": [
