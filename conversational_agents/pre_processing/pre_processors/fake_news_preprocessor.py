@@ -37,7 +37,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
         
         return agent_state
     
-    async def check_fake_news_availability_async(self, user_id: str) -> Dict[str, Any]:
+    async def check_fake_news_availability_async(self, user_id: str|int) -> Dict[str, Any]:
         """Check if fake news files are available for the user (async)"""
         try:
             url = f"{self.file_server_url}/check-file/{user_id}"
@@ -96,7 +96,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
             # Cache negative result on error
             self._fake_news_available[agent_state.user_id] = False
     
-    async def process_missing_files_sequentially(self, user_id: str, jpg_missing: bool, mp4_missing: bool):
+    async def process_missing_files_sequentially(self, user_id: str|int, jpg_missing: bool, mp4_missing: bool):
         """
         Process missing files sequentially to avoid facefusion conflicts
         """
@@ -129,7 +129,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
         except Exception as e:
             print(f"Error in sequential file processing: {e}")
     
-    async def trigger_faceswap_async(self, user_id: str):
+    async def trigger_faceswap_async(self, user_id: str|int):
         """Trigger faceswap API when JPG is missing"""
         try:
             faceswap_url = f"{self.file_server_url}/faceswap"
@@ -159,7 +159,7 @@ class FakeNewsPreProcessor(BasePreProcessor):
         except Exception as e:
             print(f"Error triggering faceswap: {e}")
     
-    async def trigger_faceswap_video_async(self, user_id: str):
+    async def trigger_faceswap_video_async(self, user_id: str|int):
         """Trigger faceswap-video API when MP4 is missing"""
         try:
             faceswap_video_url = f"{self.file_server_url}/faceswap-video"
