@@ -27,7 +27,7 @@ class LLMAnswer:
 
 @dataclass
 class AgentState:
-    user_id:str
+    user_id: str | int
     conversation_turn_counter: int
     instruction: str
     chat_history: list

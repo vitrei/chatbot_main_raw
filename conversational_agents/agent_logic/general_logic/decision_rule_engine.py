@@ -179,7 +179,7 @@ class StageSelectionRule(DecisionRule):
         # Check if user is requesting an unavailable stage
         unavailable_stage_requested = self._detect_unavailable_stage_request(context)
         if unavailable_stage_requested:
-            print(f"🚫 User requesting unavailable stage: {unavailable_stage_requested}")
+            print(f"User requesting unavailable stage: {unavailable_stage_requested}")
             # Set a special context flag for the LLM to handle this
             context['unavailable_stage_requested'] = unavailable_stage_requested
             # Let LLM handle with special prompt
@@ -192,7 +192,7 @@ class StageSelectionRule(DecisionRule):
         if all_stages_completed:
             offboarding_transitions = [t for t in allowed_transitions if t['trigger'] == 'finish_all_content']
             if offboarding_transitions:
-                print(f"🎯 All content stages completed - forcing offboarding")
+                print(f"All content stages completed - forcing offboarding")
                 return 'finish_all_content'
         
         # Check if there are no allowed content stage transitions left
@@ -201,11 +201,11 @@ class StageSelectionRule(DecisionRule):
             # Only offboarding is available
             offboarding_transitions = [t for t in allowed_transitions if t['trigger'] == 'finish_all_content']
             if offboarding_transitions:
-                print(f"🎯 No more content stages available - suggesting offboarding")
+                print(f"No more content stages available - suggesting offboarding")
                 return 'finish_all_content'
         
         # Otherwise, let LLM choose from available content stages
-        print(f"🎯 Stage selection: {len(available_content_stages)} stages available, {len(content_transitions)} transitions allowed")
+        print(f"Stage selection: {len(available_content_stages)} stages available, {len(content_transitions)} transitions allowed")
         return None
     
     def get_reason(self, context: Dict[str, Any]) -> str:
@@ -247,15 +247,15 @@ class DecisionRuleEngine:
     
     def evaluate_decision(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate all applicable rules and return decision"""
-        # print(f"🎯 RULE ENGINE: Evaluating {len(self.rules)} rules")
+        # print(f" RULE ENGINE: Evaluating {len(self.rules)} rules")
         
         for rule in self.rules:
             if rule.applies(context):
-                # print(f"  📋 Rule {rule.name} (priority {rule.priority}) applies")
+                # print(f"   Rule {rule.name} (priority {rule.priority}) applies")
                 trigger = rule.evaluate(context)
                 if trigger:
                     reason = rule.get_reason(context)
-                    print(f"  ✅ Rule {rule.name} decided: {trigger}")
+                    print(f"Rule {rule.name} decided: {trigger}")
                     return {
                         'trigger': trigger,
                         'reason': reason,
@@ -266,7 +266,7 @@ class DecisionRuleEngine:
                     pass
                     # print(f"  ⏭️ Rule {rule.name} applied but no trigger returned")
         
-        print(f"  🤷 No rules triggered - LLM decision needed")
+        print(f"No rules triggered - LLM decision needed")
         return {
             'trigger': None,
             'reason': 'No forced rules triggered',

@@ -22,9 +22,19 @@ class LLMFactory():
         if self._instance is not None:
             raise RuntimeError("Use get_instance() instead")
         self.model_name = config.get("llm", "model_name")
-        print(f'LLMFactory initialized with model: {self.model_name}')
-        # Pre-create default LLM
-        self._create_llm(self.model_name)
+        print(f'LLMFactory initialized with default model: {self.model_name}')
+        
+        # Pre-create agent-specific LLMs
+        decision_model = config.get("llm", "decision_agent_model", fallback=self.model_name)
+        conversational_model = config.get("llm", "conversational_agent_model", fallback=self.model_name)
+        
+        print(f'🧠 Decision Agent model: {decision_model}')
+        print(f'💬 Conversational Agent model: {conversational_model}')
+        
+        # Pre-create both models for faster startup
+        self._create_llm(decision_model)
+        if conversational_model != decision_model:
+            self._create_llm(conversational_model)
 
     def get_llm(self, model_name=None):
         current_model_name = model_name or self.model_name
@@ -53,9 +63,19 @@ class LLMFactory():
                     openai_api_key=api_key,
                     temperature=0.7
                 )
+            if model_name in ['llama3.1:8b']:
+
+                urls = json.loads(config.get("llm","host_names_hka"))
+                chat_llm_url = random.choice(urls)
                 
-            elif model_name in ['gemma3:27b']:
-                urls = json.loads(config.get("llm", "host_names_hka"))
+                llm = ChatOllama(
+                    model = self.model_name,
+                    base_url = chat_llm_url,
+                    keep_alive = -1 # any negative number which will keep the model loaded in memory (e.g. -1 or "-1m")
+                )
+
+            elif model_name in ['gemma3:27b']: # gemma3:27b
+                urls = json.loads(config.get("llm", "host_names_gemma"))
                 chat_llm_url = random.choice(urls)
                 
                 llm = ChatOllama(

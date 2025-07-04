@@ -84,8 +84,8 @@ class DummyProcessing(BasePostProcessor):
                             "golden_path_position": f"{golden_path_position + 1}/{len(golden_path)}" if golden_path_position >= 0 else "off-path",
                             "sequence_position": f"{sequence_position + 1}/{len(mandatory_sequence)}" if sequence_position >= 0 else "post-sequence",
                             # "total_transitions": [{"trigger": t["trigger"], "dest": t["dest"], "allowed": t.get("allowed", True)} for t in available_transitions],
-                            "allowed_transitions": [{"trigger": t["trigger"], "dest": t["dest"]} for t in allowed_transitions],
-                            "blocked_transitions": [{"trigger": t["trigger"], "dest": t["dest"], "reason": t.get("block_reason", "unknown")} for t in blocked_transitions],
+                            # "allowed_transitions": [{"trigger": t["trigger"], "dest": t["dest"]} for t in allowed_transitions],
+                            # "blocked_transitions": [{"trigger": t["trigger"], "dest": t["dest"], "reason": t.get("block_reason", "unknown")} for t in blocked_transitions],
                             "forced_transition": forced_transition,
                             "closure_approaching": turn_counter >= 11,
                             "mandatory_closure": turn_counter >= 12
@@ -134,13 +134,40 @@ class DummyProcessing(BasePostProcessor):
         return llm_answer
     
     def create_conversation_summary(self, agent_state, llm_answer):
-
+        """Optimized for user information extraction - focus on user responses"""
         try:
+            # Extract stage/state context
+            stage_data = llm_answer.payload.get("stage_progression", {}) if llm_answer.payload else {}
+            current_stage = stage_data.get("current_stage", "unknown")
+            current_state = stage_data.get("current_state", "unknown")
+            
+            # Get current bot response (the question/prompt)
+            bot_response = llm_answer.content or ""
+            
+            # Get current user message (the answer we want to analyze)
+            user_message = agent_state.instruction or ""
+            
+            # Focus on current interaction for user extraction
+            if bot_response and user_message:
+                # Extract main bot question for context
+                bot_question = self._extract_main_question(bot_response)
+                
+                # Create focused summary for user info extraction
+                summary_parts = [
+                    f"BOT FRAGE: {bot_question}",
+                    f"USER ANTWORT: {user_message}",
+                    f"KONTEXT: Stage={current_stage}, State={current_state}"
+                ]
+                
+                return "\n".join(summary_parts)
+            
+            # Fallback to previous logic if current interaction not available
             full_chat_history = llm_answer.payload.get("chat_history", "")
             
             if not full_chat_history:
-                return f"User: {agent_state.instruction or ''}\nBot: {llm_answer.content or ''}"
+                return f"USER ANTWORT: {user_message}\nKONTEXT: Stage={current_stage}"
             
+            # Parse chat history
             messages = []
             for line in full_chat_history.split('\n'):
                 line = line.strip()
@@ -149,69 +176,69 @@ class DummyProcessing(BasePostProcessor):
                 elif line.startswith('Chatbot: ') or line.startswith('Bot: '):
                     messages.append(('bot', line.replace('Chatbot: ', '').replace('Bot: ', '')))
             
-            if agent_state.instruction:
-                messages.append(('user', agent_state.instruction))
-            if llm_answer.content:
-                messages.append(('bot', llm_answer.content))
+            # Add current messages
+            if user_message:
+                messages.append(('user', user_message))
+            if bot_response:
+                messages.append(('bot', bot_response))
             
-            relevant_messages = messages[-4:] if len(messages) >= 4 else messages
+            # Get last bot-user pair for analysis
+            if len(messages) >= 2:
+                last_bot = None
+                last_user = None
+                
+                for i in range(len(messages) - 1, -1, -1):
+                    msg_type, content = messages[i]
+                    if msg_type == 'user' and not last_user:
+                        last_user = content
+                    elif msg_type == 'bot' and not last_bot and last_user:
+                        last_bot = content
+                        break
+                
+                if last_bot and last_user:
+                    bot_question = self._extract_main_question(last_bot)
+                    return f"BOT FRAGE: {bot_question}\nUSER ANTWORT: {last_user}\nKONTEXT: Stage={current_stage}, State={current_state}"
             
-            summary_parts = []
-            for msg_type, content in relevant_messages:
-                if msg_type == 'user':
-                    summary_parts.append(f"User: {content}")
-                else:
-                    summary_parts.append(f"Bot: {content}")
-            
-            summary = '\n'.join(summary_parts)
-            
-            context_hint = f"\n\nContext: Dies ist ein Gespräch über Fake News und Medienkompetenz. Der User ist {agent_state.user_profile.get('age', 'unbekanntes Alter')} Jahre alt."
-            
-            return summary + context_hint
+            # Final fallback
+            return f"USER ANTWORT: {user_message}\nKONTEXT: Stage={current_stage}, State={current_state}"
             
         except Exception as e:
             print(f"Error creating conversation summary: {e}")
-            return f"User: {agent_state.instruction or ''}\nBot: {llm_answer.content or ''}"
+            return f"USER ANTWORT: {agent_state.instruction or ''}\nKONTEXT: Error in summary creation"
+    
+    def _extract_main_question(self, bot_response: str) -> str:
+        """Extract the main question - simple approach"""
+        # Just take the last sentence with a question mark, or the last sentence
+        sentences = bot_response.split('.')
+        
+        # Look for sentences with ?
+        for sentence in reversed(sentences):
+            if '?' in sentence:
+                return sentence.strip()
+        
+        # Fallback: last sentence or truncate if too long
+        last_sentence = sentences[-1].strip() if sentences else bot_response
+        return last_sentence if len(last_sentence) <= 150 else last_sentence[:150] + "..."
 
     async def send_conversation_async(self, agent_state, llm_answer):
-        """Send conversation data to user profile builder (async, non-blocking)"""
+        """Send simplified conversation data for user profile analysis"""
         try:
             print(f"📡 Sending conversation for user {agent_state.user_id}")
             
+            # Get focused conversation summary
             conversation_summary = self.create_conversation_summary(agent_state, llm_answer)
-
-            # print(conversation_summary)
             
-            # Extract stage progression data from payload
+            # Extract minimal stage context
             stage_data = llm_answer.payload.get("stage_progression", {}) if llm_answer.payload else {}
             
+            # Simple, focused data for user information extraction
             conversation_data = {
                 "user_id": str(agent_state.user_id),
                 "timestamp": dt.datetime.now().isoformat(),
                 "user_message": agent_state.instruction or "",
                 "bot_response": llm_answer.content,
-                "full_conversation": conversation_summary,
-                "turn_count": getattr(agent_state, 'conversation_turn_counter', 0),
-                "user_profile": getattr(agent_state, 'user_profile', None),
-                # Add stage progression tracking for user profile analysis
-                "stage_progression": {
-                    "current_stage": stage_data.get("current_stage", "unknown"),
-                    "current_state": stage_data.get("current_state", "unknown"),
-                    "progress_percentage": stage_data.get("progress_percentage", 0),
-                    "turn_counter": stage_data.get("turn_counter", 0),
-                    "max_turns": stage_data.get("max_turns", 12),
-                    "min_turns": stage_data.get("min_turns", 8),
-                    "turns_remaining": stage_data.get("turns_remaining", 0),
-                    "golden_path_position": stage_data.get("golden_path_position", "unknown"),
-                    "sequence_position": stage_data.get("sequence_position", "unknown"),
-                    # "total_transitions": stage_data.get("total_transitions", 0),
-                    "allowed_transitions": stage_data.get("allowed_transitions", 0),
-                    "blocked_transitions": stage_data.get("blocked_transitions", 0),
-                    "forced_transition": stage_data.get("forced_transition"),
-                    "closure_approaching": stage_data.get("closure_approaching", False),
-                    "mandatory_closure": stage_data.get("mandatory_closure", False),
-                    "progression_health": self._assess_progression_health(stage_data)
-                }
+                "full_conversation": conversation_summary,  # Optimized summary
+                "turn_count": getattr(agent_state, 'conversation_turn_counter', 0)
             }
             
             

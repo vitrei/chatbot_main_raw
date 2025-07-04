@@ -10,10 +10,10 @@ from typing import Dict, Any
 class FakeNewsPreProcessor(BasePreProcessor):
     def __init__(self, file_server_url: str = "http://localhost:8000", timeout: float = 3.0):
         self.file_server_url = file_server_url
-        self.target_face_path = "/home/merlotllm/Documents/facefusion/temp/b8ce6513-2ffd-4823-8bc5-3058abc656cb_source.jpg"
-        self.target_video_path = "/home/merlotllm/Documents/facefusion/temp/b8ce6513-2ffd-4823-8bc5-3058abc656cb_target.mp4"
+        self.target_face_path = "/home/merlotllm/Documents/facefusion/temp/2ec824f8-2999-4ce4-be6c-21f0050cd4d2_target.jpg"
+        self.target_video_path = "/home/merlotllm/Documents/facefusion/temp/istockphoto-1089670858-640_adpp_is.mp4"
         self.timeout = timeout
-        self._fetched_content = {}
+        # self._fetched_content = {}
         self._fake_news_available = {}
         # print(f"FakeNewsPreProcessor initialized with server: {file_server_url}")
     
